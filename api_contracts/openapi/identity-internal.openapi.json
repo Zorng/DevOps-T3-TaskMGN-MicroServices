@@ -1,0 +1,918 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Private Identity API",
+    "version": "1.0.0",
+    "description": "Implementation contract draft for team review. Work area: Identity & Workspace. See ../conventions.md, ../authentication.md, and ../workflows.md. All examples are synthetic."
+  },
+  "servers": [
+    {
+      "url": "http://identity-workspace:8000",
+      "description": "Private service address; environment-specific, not publicly routed."
+    }
+  ],
+  "security": [
+    {
+      "serviceKey": [],
+      "sessionBearer": []
+    }
+  ],
+  "paths": {
+    "/internal/v1/auth/introspect": {
+      "post": {
+        "operationId": "introspectSession",
+        "summary": "Validate application session",
+        "description": "Allowed callers: Task and Notification. Requires BOTH per-service X-Service-Key and user Authorization bearer. Returns current identity only for live session; expired/revoked: 401. Never publicly routed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionIdentity"
+                },
+                "example": {
+                  "user": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "session_expires_at": "2026-11-14T18:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Private Identity API"
+        ]
+      }
+    },
+    "/internal/v1/workspaces/{workspace_id}/access": {
+      "post": {
+        "operationId": "getWorkspaceAccess",
+        "summary": "Get current actor access and membership generations",
+        "description": "Allowed caller: Task only. BOTH per-service key and actor bearer required. Active workspace/member required; inaccessible: 404. Returns consistent snapshot of <=20 current members. Never cached for authorization. Provides display names and membership IDs for assignment/mention validation.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessContext"
+                },
+                "example": {
+                  "actor": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "workspace_version": 2,
+                  "actor_membership_id": "00000000-0000-4000-8000-000000000009",
+                  "actor_role": "owner",
+                  "members": [
+                    {
+                      "membership_id": "00000000-0000-4000-8000-000000000009",
+                      "user": {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "display_name": "Example Owner"
+                      },
+                      "role": "owner",
+                      "joined_at": "2026-11-14T10:00:00Z"
+                    },
+                    {
+                      "membership_id": "00000000-0000-4000-8000-000000000010",
+                      "user": {
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "display_name": "Dara"
+                      },
+                      "role": "member",
+                      "joined_at": "2026-11-14T10:00:00Z"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Private Identity API"
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque application session issued by Google exchange; NOT a Google ID token."
+      },
+      "serviceKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Service-Key",
+        "description": "Per-caller secret. Task and Notification have distinct keys and endpoint allowlists."
+      }
+    },
+    "parameters": {
+      "RequestId": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Optional correlation UUID; gateway generates/replaces invalid values and echoes a UUID."
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Client-generated UUID; retain the same value on retry. Scope and 24-hour retention: conventions.md."
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^\"[1-9][0-9]*\"$"
+        },
+        "description": "Strong version ETag, e.g. \"3\". Required on resource PATCH/DELETE. Stale: 412; missing: 428."
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "description": "Opaque cursor from the same list, user, and filters. Invalid cursor: 400."
+      },
+      "workspace_id": {
+        "name": "workspace_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "board_id": {
+        "name": "board_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "task_id": {
+        "name": "task_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "invitation_id": {
+        "name": "invitation_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "notification_id": {
+        "name": "notification_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "user_id": {
+        "name": "user_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "schemas": {
+      "UserSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "display_name": "Example Owner"
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 150
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "details"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "error": {
+              "code": "VALIDATION_FAILED",
+              "message": "The request contains invalid fields.",
+              "request_id": "00000000-0000-4000-8000-000000000012",
+              "details": [
+                {
+                  "field": "due_date",
+                  "reason": "Must be on or after start_date."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "membership_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "membership_id",
+          "user",
+          "role",
+          "joined_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "membership_id": "00000000-0000-4000-8000-000000000010",
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Dara"
+            },
+            "role": "member",
+            "joined_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "AccessContext": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "actor_membership_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actor_role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "actor",
+          "workspace_id",
+          "workspace_version",
+          "actor_membership_id",
+          "actor_role",
+          "members"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "actor": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner"
+            },
+            "workspace_id": "00000000-0000-4000-8000-000000000003",
+            "workspace_version": 2,
+            "actor_membership_id": "00000000-0000-4000-8000-000000000009",
+            "actor_role": "owner",
+            "members": [
+              {
+                "membership_id": "00000000-0000-4000-8000-000000000009",
+                "user": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "display_name": "Example Owner"
+                },
+                "role": "owner",
+                "joined_at": "2026-11-14T10:00:00Z"
+              },
+              {
+                "membership_id": "00000000-0000-4000-8000-000000000010",
+                "user": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "display_name": "Dara"
+                },
+                "role": "member",
+                "joined_at": "2026-11-14T10:00:00Z"
+              }
+            ]
+          }
+        ]
+      },
+      "SessionIdentity": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "session_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "user",
+          "session_expires_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner"
+            },
+            "session_expires_at": "2026-11-14T18:00:00Z"
+          }
+        ]
+      }
+    },
+    "responses": {
+      "400": {
+        "description": "Malformed JSON, parameter, or cursor.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Missing, invalid, expired, or revoked credentials.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "403": {
+        "description": "Authenticated actor lacks permission.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "Resource does not exist, is deleted, or is hidden from this actor.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "409": {
+        "description": "Business conflict, capacity limit, terminal invitation, or idempotency key conflict.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "412": {
+        "description": "If-Match version is stale.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "413": {
+        "description": "Request body exceeds 64 KiB.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "415": {
+        "description": "Unsupported content type; JSON required.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "422": {
+        "description": "Schema or business-field validation failed.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "428": {
+        "description": "Required If-Match missing.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "429": {
+        "description": "Rate limit exceeded.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Seconds before retry."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "Unexpected internal failure.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "503": {
+        "description": "Required dependency unavailable; fail closed.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Seconds before retry."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

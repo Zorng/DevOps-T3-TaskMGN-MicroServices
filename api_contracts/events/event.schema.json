@@ -1,0 +1,502 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskboard.example/events/event.schema.json",
+  "title": "Task management domain event v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/invitation_created_v1"
+    },
+    {
+      "$ref": "#/$defs/task_assigned_v1"
+    },
+    {
+      "$ref": "#/$defs/task_comment_mentioned_v1"
+    },
+    {
+      "$ref": "#/$defs/workspace_member_removed_v1"
+    },
+    {
+      "$ref": "#/$defs/workspace_deleted_v1"
+    }
+  ],
+  "$defs": {
+    "invitation_created_v1": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "type": "string",
+          "const": "invitation.created.v1"
+        },
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "producer": {
+          "type": "string",
+          "const": "identity-workspace"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "invitation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "id",
+                "display_name"
+              ],
+              "additionalProperties": false
+            },
+            "recipient_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "workspace_id",
+            "invitation_id",
+            "actor",
+            "recipient_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "schema_version",
+        "producer",
+        "occurred_at",
+        "request_id",
+        "aggregate_id",
+        "aggregate_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "task_assigned_v1": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "type": "string",
+          "const": "task.assigned.v1"
+        },
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "producer": {
+          "type": "string",
+          "const": "task"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "task_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "id",
+                "display_name"
+              ],
+              "additionalProperties": false
+            },
+            "recipient_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "recipient_membership_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "workspace_id",
+            "task_id",
+            "actor",
+            "recipient_id",
+            "recipient_membership_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "schema_version",
+        "producer",
+        "occurred_at",
+        "request_id",
+        "aggregate_id",
+        "aggregate_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "task_comment_mentioned_v1": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "type": "string",
+          "const": "task.comment_mentioned.v1"
+        },
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "producer": {
+          "type": "string",
+          "const": "task"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "task_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "comment_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "id",
+                "display_name"
+              ],
+              "additionalProperties": false
+            },
+            "recipient_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "recipient_membership_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "workspace_id",
+            "task_id",
+            "comment_id",
+            "actor",
+            "recipient_id",
+            "recipient_membership_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "schema_version",
+        "producer",
+        "occurred_at",
+        "request_id",
+        "aggregate_id",
+        "aggregate_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "workspace_member_removed_v1": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "type": "string",
+          "const": "workspace.member_removed.v1"
+        },
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "producer": {
+          "type": "string",
+          "const": "identity-workspace"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "user_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "membership_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "id",
+                "display_name"
+              ],
+              "additionalProperties": false
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "removed",
+                "left"
+              ]
+            }
+          },
+          "required": [
+            "workspace_id",
+            "user_id",
+            "membership_id",
+            "actor",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "schema_version",
+        "producer",
+        "occurred_at",
+        "request_id",
+        "aggregate_id",
+        "aggregate_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "workspace_deleted_v1": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "type": "string",
+          "const": "workspace.deleted.v1"
+        },
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "producer": {
+          "type": "string",
+          "const": "identity-workspace"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "id",
+                "display_name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "workspace_id",
+            "actor"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "schema_version",
+        "producer",
+        "occurred_at",
+        "request_id",
+        "aggregate_id",
+        "aggregate_version",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

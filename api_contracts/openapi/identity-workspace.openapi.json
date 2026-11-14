@@ -1,0 +1,2919 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Identity & Workspace API",
+    "version": "1.0.0",
+    "description": "Implementation contract draft for team review. Work area: Identity & Workspace. See ../conventions.md, ../authentication.md, and ../workflows.md. All examples are synthetic."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local gateway; replace with HTTPS gateway in deployed environment."
+    }
+  ],
+  "security": [
+    {
+      "sessionBearer": []
+    }
+  ],
+  "paths": {
+    "/api/v1/auth/google/challenges": {
+      "post": {
+        "operationId": "createGoogleChallenge",
+        "summary": "Start Google sign-in",
+        "description": "Unauthenticated. Create a single-use random nonce valid for 5 minutes. Frontend passes nonce to Google Identity Services. Rate limit by client IP.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Challenge"
+                },
+                "example": {
+                  "challenge_id": "00000000-0000-4000-8000-000000000013",
+                  "nonce": "synthetic-nonce-not-for-use-in-production-0001",
+                  "expires_at": "2026-11-14T10:05:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "security": []
+      }
+    },
+    "/api/v1/auth/google/exchange": {
+      "post": {
+        "operationId": "exchangeGoogleCredential",
+        "summary": "Exchange verified Google credential for application session",
+        "description": "Validate signature, issuer, configured audience, expiration, nonce and verified email; atomically consume challenge. Map identity using Google sub, never email alone. Session lasts 8 hours; no refresh token. Unknown/expired/consumed challenge: 401 AUTH_CHALLENGE_INVALID. See authentication.md.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                },
+                "example": {
+                  "access_token": "synthetic-session-token-not-a-real-credential",
+                  "token_type": "Bearer",
+                  "expires_at": "2026-11-14T18:00:00Z",
+                  "user": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner",
+                    "email": "owner@example.com",
+                    "created_at": "2026-11-14T10:00:00Z"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleExchange"
+              },
+              "example": {
+                "challenge_id": "00000000-0000-4000-8000-000000000013",
+                "id_token": "synthetic.invalid.token"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "Revoke current session",
+        "description": "Revokes only the presented session. 204 on first success; an already revoked credential returns 401. Frontend clears token in either case.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "Get current profile and owned workspace count",
+        "description": "Current session required.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                },
+                "example": {
+                  "user": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner",
+                    "email": "owner@example.com",
+                    "created_at": "2026-11-14T10:00:00Z"
+                  },
+                  "owned_workspace_count": 1
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/workspaces": {
+      "get": {
+        "operationId": "listWorkspaces",
+        "summary": "List joined and owned workspaces",
+        "description": "Only active memberships. Order created_at DESC, id DESC.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspacePage"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000003",
+                      "name": "DevOps Team",
+                      "owner_id": "00000000-0000-4000-8000-000000000001",
+                      "my_role": "owner",
+                      "member_count": 2,
+                      "version": 2,
+                      "created_at": "2026-11-14T10:00:00Z",
+                      "updated_at": "2026-11-14T10:00:00Z"
+                    }
+                  ],
+                  "next_cursor": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      },
+      "post": {
+        "operationId": "createWorkspace",
+        "summary": "Create workspace",
+        "description": "Creates owner membership atomically. Maximum 10 active owned workspaces; serialize quota check. 409 WORKSPACE_LIMIT_REACHED.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"1\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000003",
+                  "name": "DevOps Team",
+                  "owner_id": "00000000-0000-4000-8000-000000000001",
+                  "my_role": "owner",
+                  "member_count": 1,
+                  "version": 1,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameWorkspace"
+              },
+              "example": {
+                "name": "DevOps Team"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}": {
+      "get": {
+        "operationId": "getWorkspace",
+        "summary": "Get workspace",
+        "description": "Current member. Non-member/deleted: 404.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"2\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000003",
+                  "name": "DevOps Team",
+                  "owner_id": "00000000-0000-4000-8000-000000000001",
+                  "my_role": "owner",
+                  "member_count": 2,
+                  "version": 2,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      },
+      "patch": {
+        "operationId": "renameWorkspace",
+        "summary": "Rename workspace",
+        "description": "Owner only. Increment version on actual change.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"3\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000003",
+                  "name": "DevOps Project",
+                  "owner_id": "00000000-0000-4000-8000-000000000001",
+                  "my_role": "owner",
+                  "member_count": 2,
+                  "version": 3,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameWorkspace"
+              },
+              "example": {
+                "name": "DevOps Team"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteWorkspace",
+        "summary": "Delete workspace",
+        "description": "Owner only. Atomically mark inaccessible, cancel pending invitations, revoke memberships, free ownership slot and outbox workspace.deleted.v1. Task cleanup is asynchronous. 204 means authoritative deletion committed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/members": {
+      "get": {
+        "operationId": "listMembers",
+        "summary": "List workspace members",
+        "description": "Current member. Returns at most 20; order joined_at ASC, membership_id ASC. Optional q matches display name case-insensitively for mention picker; no email directory.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberList"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "membership_id": "00000000-0000-4000-8000-000000000010",
+                      "user": {
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "display_name": "Dara"
+                      },
+                      "role": "member",
+                      "joined_at": "2026-11-14T10:00:00Z"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/members/{user_id}": {
+      "delete": {
+        "operationId": "removeMember",
+        "summary": "Remove member",
+        "description": "Owner only; cannot remove owner (409 OWNER_CANNOT_LEAVE). Removes current membership generation, clears access immediately, emits workspace.member_removed.v1. Already absent target while actor remains owner: 204.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/user_id"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/membership": {
+      "delete": {
+        "operationId": "leaveWorkspace",
+        "summary": "Leave workspace",
+        "description": "Current non-owner leaves; emits workspace.member_removed.v1 with reason left. Work area: 409 OWNER_CANNOT_LEAVE. Subsequent attempt after leaving: 404.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/invitations": {
+      "post": {
+        "operationId": "createInvitation",
+        "summary": "Invite by exact registered email",
+        "description": "Owner only. Lookup and invite in one call; no separate public directory. Email is trimmed and compared case-insensitively; do not remove dots or plus aliases. Missing registered recipient: 404 USER_NOT_FOUND; ambiguous email mapping: 409 EMAIL_AMBIGUOUS. Existing member or pending invite: 409. Pending invitations do not reserve member slots. Emits invitation.created.v1.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invitation"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000008",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "workspace_name": "DevOps Team",
+                  "inviter": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "recipient": {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "display_name": "Dara"
+                  },
+                  "status": "pending",
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteCreate"
+              },
+              "example": {
+                "email": "dara@example.com"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listWorkspaceInvitations",
+        "summary": "List workspace invitations",
+        "description": "Owner only; newest first. Optional status filter.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "accepted",
+                "declined",
+                "cancelled"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPage"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000008",
+                      "workspace_id": "00000000-0000-4000-8000-000000000003",
+                      "workspace_name": "DevOps Team",
+                      "inviter": {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "display_name": "Example Owner"
+                      },
+                      "recipient": {
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "display_name": "Dara"
+                      },
+                      "status": "pending",
+                      "created_at": "2026-11-14T10:00:00Z",
+                      "updated_at": "2026-11-14T10:00:00Z"
+                    }
+                  ],
+                  "next_cursor": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/invitations": {
+      "get": {
+        "operationId": "listMyInvitations",
+        "summary": "List invitations addressed to me",
+        "description": "Recipient only; newest first. Deleted workspace invitations are excluded. Optional status filter.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "accepted",
+                "declined",
+                "cancelled"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPage"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000008",
+                      "workspace_id": "00000000-0000-4000-8000-000000000003",
+                      "workspace_name": "DevOps Team",
+                      "inviter": {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "display_name": "Example Owner"
+                      },
+                      "recipient": {
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "display_name": "Dara"
+                      },
+                      "status": "pending",
+                      "created_at": "2026-11-14T10:00:00Z",
+                      "updated_at": "2026-11-14T10:00:00Z"
+                    }
+                  ],
+                  "next_cursor": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/invitations/{invitation_id}": {
+      "get": {
+        "operationId": "getInvitation",
+        "summary": "Get invitation",
+        "description": "Recipient or current workspace owner only. Other actor/deleted workspace: 404.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/invitation_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invitation"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000008",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "workspace_name": "DevOps Team",
+                  "inviter": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "recipient": {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "display_name": "Dara"
+                  },
+                  "status": "pending",
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/api/v1/invitations/{invitation_id}/response": {
+      "post": {
+        "operationId": "respondToInvitation",
+        "summary": "Accept or decline invitation",
+        "description": "Recipient only. Pending → accepted/declined atomically. Repeat same action on same terminal outcome returns 200 without new membership (including if user later left). Other terminal outcome: 409 INVITATION_NOT_PENDING. Accept at 20 members: 409 MEMBER_LIMIT_REACHED; remains pending. New join creates a new membership_id.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/invitation_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invitation"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000008",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "workspace_name": "DevOps Team",
+                  "inviter": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "recipient": {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "display_name": "Dara"
+                  },
+                  "status": "accepted",
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationResponse"
+              },
+              "example": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/invitations/{invitation_id}/cancel": {
+      "post": {
+        "operationId": "cancelInvitation",
+        "summary": "Cancel pending invitation",
+        "description": "Current owner only. Pending → cancelled; repeat cancelled returns same record. Accepted/declined: 409 INVITATION_NOT_PENDING. No request body.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/invitation_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invitation"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000008",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "workspace_name": "DevOps Team",
+                  "inviter": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "recipient": {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "display_name": "Dara"
+                  },
+                  "status": "cancelled",
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "Identitylive",
+        "summary": "Service live",
+        "description": "Process responds; does not test dependencies.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "ok"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "unavailable"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "security": []
+      },
+      "servers": [
+        {
+          "url": "http://identity-workspace:8000",
+          "description": "Private direct service probe; not exposed by public gateway."
+        }
+      ]
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "Identityready",
+        "summary": "Service ready",
+        "description": "Can serve required synchronous operations: database available; Task/Notification can reach Identity. Broker outage alone does not fail readiness if outbox can safely persist. 503 when unavailable.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "ok"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "unavailable"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Identity & Workspace API"
+        ],
+        "security": []
+      },
+      "servers": [
+        {
+          "url": "http://identity-workspace:8000",
+          "description": "Private direct service probe; not exposed by public gateway."
+        }
+      ]
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque application session issued by Google exchange; NOT a Google ID token."
+      },
+      "serviceKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Service-Key",
+        "description": "Per-caller secret. Task and Notification have distinct keys and endpoint allowlists."
+      }
+    },
+    "parameters": {
+      "RequestId": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Optional correlation UUID; gateway generates/replaces invalid values and echoes a UUID."
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Client-generated UUID; retain the same value on retry. Scope and 24-hour retention: conventions.md."
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^\"[1-9][0-9]*\"$"
+        },
+        "description": "Strong version ETag, e.g. \"3\". Required on resource PATCH/DELETE. Stale: 412; missing: 428."
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "description": "Opaque cursor from the same list, user, and filters. Invalid cursor: 400."
+      },
+      "workspace_id": {
+        "name": "workspace_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "board_id": {
+        "name": "board_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "task_id": {
+        "name": "task_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "invitation_id": {
+        "name": "invitation_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "notification_id": {
+        "name": "notification_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "user_id": {
+        "name": "user_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "schemas": {
+      "UserSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "display_name": "Example Owner"
+          }
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "email": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "format": "email"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "email",
+          "created_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "display_name": "Example Owner",
+            "email": "owner@example.com",
+            "created_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 150
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "details"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "error": {
+              "code": "VALIDATION_FAILED",
+              "message": "The request contains invalid fields.",
+              "request_id": "00000000-0000-4000-8000-000000000012",
+              "details": [
+                {
+                  "field": "due_date",
+                  "reason": "Must be on or after start_date."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "my_role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "member_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_id",
+          "my_role",
+          "member_count",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "name": "DevOps Team",
+            "owner_id": "00000000-0000-4000-8000-000000000001",
+            "my_role": "owner",
+            "member_count": 2,
+            "version": 2,
+            "created_at": "2026-11-14T10:00:00Z",
+            "updated_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "membership_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "membership_id",
+          "user",
+          "role",
+          "joined_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "membership_id": "00000000-0000-4000-8000-000000000010",
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Dara"
+            },
+            "role": "member",
+            "joined_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "Invitation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "inviter": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "declined",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "workspace_name",
+          "inviter",
+          "recipient",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000008",
+            "workspace_id": "00000000-0000-4000-8000-000000000003",
+            "workspace_name": "DevOps Team",
+            "inviter": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner"
+            },
+            "recipient": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Dara"
+            },
+            "status": "pending",
+            "created_at": "2026-11-14T10:00:00Z",
+            "updated_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unavailable"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "status": "ok"
+          }
+        ]
+      },
+      "NameWorkspace": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "name": "DevOps Team"
+          }
+        ]
+      },
+      "InviteCreate": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "format": "email"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "email": "dara@example.com"
+          }
+        ]
+      },
+      "InvitationResponse": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "decline"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "action": "accept"
+          }
+        ]
+      },
+      "Challenge": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "nonce",
+          "expires_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "challenge_id": "00000000-0000-4000-8000-000000000013",
+            "nonce": "synthetic-nonce-not-for-use-in-production-0001",
+            "expires_at": "2026-11-14T10:05:00Z"
+          }
+        ]
+      },
+      "GoogleExchange": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "required": [
+          "challenge_id",
+          "id_token"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "challenge_id": "00000000-0000-4000-8000-000000000013",
+            "id_token": "synthetic.invalid.token"
+          }
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 256
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_at",
+          "user"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "access_token": "synthetic-session-token-not-a-real-credential",
+            "token_type": "Bearer",
+            "expires_at": "2026-11-14T18:00:00Z",
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner",
+              "email": "owner@example.com",
+              "created_at": "2026-11-14T10:00:00Z"
+            }
+          }
+        ]
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "owned_workspace_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "user",
+          "owned_workspace_count"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner",
+              "email": "owner@example.com",
+              "created_at": "2026-11-14T10:00:00Z"
+            },
+            "owned_workspace_count": 1
+          }
+        ]
+      },
+      "WorkspacePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Workspace"
+            },
+            "maxItems": 100
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "items": [
+              {
+                "id": "00000000-0000-4000-8000-000000000003",
+                "name": "DevOps Team",
+                "owner_id": "00000000-0000-4000-8000-000000000001",
+                "my_role": "owner",
+                "member_count": 2,
+                "version": 2,
+                "created_at": "2026-11-14T10:00:00Z",
+                "updated_at": "2026-11-14T10:00:00Z"
+              }
+            ],
+            "next_cursor": null
+          }
+        ]
+      },
+      "InvitationPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Invitation"
+            },
+            "maxItems": 100
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "items": [
+              {
+                "id": "00000000-0000-4000-8000-000000000008",
+                "workspace_id": "00000000-0000-4000-8000-000000000003",
+                "workspace_name": "DevOps Team",
+                "inviter": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "display_name": "Example Owner"
+                },
+                "recipient": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "display_name": "Dara"
+                },
+                "status": "pending",
+                "created_at": "2026-11-14T10:00:00Z",
+                "updated_at": "2026-11-14T10:00:00Z"
+              }
+            ],
+            "next_cursor": null
+          }
+        ]
+      },
+      "MemberList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "items": [
+              {
+                "membership_id": "00000000-0000-4000-8000-000000000010",
+                "user": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "display_name": "Dara"
+                },
+                "role": "member",
+                "joined_at": "2026-11-14T10:00:00Z"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "responses": {
+      "400": {
+        "description": "Malformed JSON, parameter, or cursor.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Missing, invalid, expired, or revoked credentials.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "403": {
+        "description": "Authenticated actor lacks permission.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "Resource does not exist, is deleted, or is hidden from this actor.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "409": {
+        "description": "Business conflict, capacity limit, terminal invitation, or idempotency key conflict.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "412": {
+        "description": "If-Match version is stale.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "413": {
+        "description": "Request body exceeds 64 KiB.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "415": {
+        "description": "Unsupported content type; JSON required.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "422": {
+        "description": "Schema or business-field validation failed.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "428": {
+        "description": "Required If-Match missing.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "429": {
+        "description": "Rate limit exceeded.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Seconds before retry."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "Unexpected internal failure.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "503": {
+        "description": "Required dependency unavailable; fail closed.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Seconds before retry."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

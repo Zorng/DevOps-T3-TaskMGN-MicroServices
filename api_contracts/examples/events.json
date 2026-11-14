@@ -1,0 +1,99 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000101",
+    "type": "invitation.created.v1",
+    "schema_version": 1,
+    "producer": "identity-workspace",
+    "occurred_at": "2026-11-14T10:00:00Z",
+    "request_id": "00000000-0000-4000-8000-000000000012",
+    "aggregate_id": "00000000-0000-4000-8000-000000000008",
+    "aggregate_version": 1,
+    "data": {
+      "workspace_id": "00000000-0000-4000-8000-000000000003",
+      "actor": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "display_name": "Example Owner"
+      },
+      "invitation_id": "00000000-0000-4000-8000-000000000008",
+      "recipient_id": "00000000-0000-4000-8000-000000000002"
+    }
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000102",
+    "type": "task.assigned.v1",
+    "schema_version": 1,
+    "producer": "task",
+    "occurred_at": "2026-11-14T10:00:00Z",
+    "request_id": "00000000-0000-4000-8000-000000000012",
+    "aggregate_id": "00000000-0000-4000-8000-000000000006",
+    "aggregate_version": 1,
+    "data": {
+      "workspace_id": "00000000-0000-4000-8000-000000000003",
+      "actor": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "display_name": "Example Owner"
+      },
+      "task_id": "00000000-0000-4000-8000-000000000006",
+      "recipient_id": "00000000-0000-4000-8000-000000000002",
+      "recipient_membership_id": "00000000-0000-4000-8000-000000000010"
+    }
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000103",
+    "type": "task.comment_mentioned.v1",
+    "schema_version": 1,
+    "producer": "task",
+    "occurred_at": "2026-11-14T10:00:00Z",
+    "request_id": "00000000-0000-4000-8000-000000000012",
+    "aggregate_id": "00000000-0000-4000-8000-000000000007",
+    "aggregate_version": 1,
+    "data": {
+      "workspace_id": "00000000-0000-4000-8000-000000000003",
+      "actor": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "display_name": "Example Owner"
+      },
+      "task_id": "00000000-0000-4000-8000-000000000006",
+      "comment_id": "00000000-0000-4000-8000-000000000007",
+      "recipient_id": "00000000-0000-4000-8000-000000000002",
+      "recipient_membership_id": "00000000-0000-4000-8000-000000000010"
+    }
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000104",
+    "type": "workspace.member_removed.v1",
+    "schema_version": 1,
+    "producer": "identity-workspace",
+    "occurred_at": "2026-11-14T10:00:00Z",
+    "request_id": "00000000-0000-4000-8000-000000000012",
+    "aggregate_id": "00000000-0000-4000-8000-000000000010",
+    "aggregate_version": 2,
+    "data": {
+      "workspace_id": "00000000-0000-4000-8000-000000000003",
+      "actor": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "display_name": "Example Owner"
+      },
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "membership_id": "00000000-0000-4000-8000-000000000010",
+      "reason": "removed"
+    }
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000105",
+    "type": "workspace.deleted.v1",
+    "schema_version": 1,
+    "producer": "identity-workspace",
+    "occurred_at": "2026-11-14T10:00:00Z",
+    "request_id": "00000000-0000-4000-8000-000000000012",
+    "aggregate_id": "00000000-0000-4000-8000-000000000003",
+    "aggregate_version": 3,
+    "data": {
+      "workspace_id": "00000000-0000-4000-8000-000000000003",
+      "actor": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "display_name": "Example Owner"
+      }
+    }
+  }
+]

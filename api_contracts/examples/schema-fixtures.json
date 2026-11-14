@@ -1,0 +1,378 @@
+{
+  "UserSummary": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "display_name": "Example Owner"
+  },
+  "User": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "display_name": "Example Owner",
+    "email": "owner@example.com",
+    "created_at": "2026-11-14T10:00:00Z"
+  },
+  "Error": {
+    "error": {
+      "code": "VALIDATION_FAILED",
+      "message": "The request contains invalid fields.",
+      "request_id": "00000000-0000-4000-8000-000000000012",
+      "details": [
+        {
+          "field": "due_date",
+          "reason": "Must be on or after start_date."
+        }
+      ]
+    }
+  },
+  "Workspace": {
+    "id": "00000000-0000-4000-8000-000000000003",
+    "name": "DevOps Team",
+    "owner_id": "00000000-0000-4000-8000-000000000001",
+    "my_role": "owner",
+    "member_count": 2,
+    "version": 2,
+    "created_at": "2026-11-14T10:00:00Z",
+    "updated_at": "2026-11-14T10:00:00Z"
+  },
+  "Member": {
+    "membership_id": "00000000-0000-4000-8000-000000000010",
+    "user": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "display_name": "Dara"
+    },
+    "role": "member",
+    "joined_at": "2026-11-14T10:00:00Z"
+  },
+  "Invitation": {
+    "id": "00000000-0000-4000-8000-000000000008",
+    "workspace_id": "00000000-0000-4000-8000-000000000003",
+    "workspace_name": "DevOps Team",
+    "inviter": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner"
+    },
+    "recipient": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "display_name": "Dara"
+    },
+    "status": "pending",
+    "created_at": "2026-11-14T10:00:00Z",
+    "updated_at": "2026-11-14T10:00:00Z"
+  },
+  "Board": {
+    "id": "00000000-0000-4000-8000-000000000004",
+    "workspace_id": "00000000-0000-4000-8000-000000000003",
+    "name": "Todo",
+    "version": 1,
+    "created_at": "2026-11-14T10:00:00Z",
+    "updated_at": "2026-11-14T10:00:00Z"
+  },
+  "Task": {
+    "id": "00000000-0000-4000-8000-000000000006",
+    "workspace_id": "00000000-0000-4000-8000-000000000003",
+    "board_id": "00000000-0000-4000-8000-000000000004",
+    "number": 1,
+    "title": "Build task service",
+    "description": "Implement the agreed contract.",
+    "assignee": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "display_name": "Dara"
+    },
+    "start_date": "2026-11-15",
+    "due_date": "2026-11-20",
+    "creator": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner"
+    },
+    "version": 1,
+    "created_at": "2026-11-14T10:00:00Z",
+    "updated_at": "2026-11-14T10:00:00Z"
+  },
+  "Comment": {
+    "id": "00000000-0000-4000-8000-000000000007",
+    "workspace_id": "00000000-0000-4000-8000-000000000003",
+    "task_id": "00000000-0000-4000-8000-000000000006",
+    "body": "Please review @Dara",
+    "author": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner"
+    },
+    "mentions": [
+      {
+        "user": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "display_name": "Dara"
+        },
+        "start": 14,
+        "length": 5
+      }
+    ],
+    "created_at": "2026-11-14T10:00:00Z"
+  },
+  "MentionInput": {
+    "user_id": "00000000-0000-4000-8000-000000000002",
+    "start": 14,
+    "length": 5
+  },
+  "Mention": {
+    "user": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "display_name": "Dara"
+    },
+    "start": 14,
+    "length": 5
+  },
+  "Notification": {
+    "id": "00000000-0000-4000-8000-000000000011",
+    "event_id": "00000000-0000-4000-8000-000000000102",
+    "type": "assignment",
+    "actor": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner"
+    },
+    "workspace_id": "00000000-0000-4000-8000-000000000003",
+    "invitation_id": null,
+    "task_id": "00000000-0000-4000-8000-000000000006",
+    "comment_id": null,
+    "occurred_at": "2026-11-14T10:00:00Z",
+    "created_at": "2026-11-14T10:00:00Z",
+    "read_at": null
+  },
+  "Health": {
+    "status": "ok"
+  },
+  "NameWorkspace": {
+    "name": "DevOps Team"
+  },
+  "NameBoard": {
+    "name": "Todo"
+  },
+  "TaskCreate": {
+    "board_id": "00000000-0000-4000-8000-000000000004",
+    "title": "Build task service",
+    "description": "Implement the agreed contract.",
+    "assignee_id": "00000000-0000-4000-8000-000000000002",
+    "start_date": "2026-11-15",
+    "due_date": "2026-11-20"
+  },
+  "TaskPatch": {
+    "board_id": "00000000-0000-4000-8000-000000000005"
+  },
+  "CommentCreate": {
+    "body": "Please review @Dara",
+    "mentions": [
+      {
+        "user_id": "00000000-0000-4000-8000-000000000002",
+        "start": 14,
+        "length": 5
+      }
+    ]
+  },
+  "InviteCreate": {
+    "email": "dara@example.com"
+  },
+  "InvitationResponse": {
+    "action": "accept"
+  },
+  "Challenge": {
+    "challenge_id": "00000000-0000-4000-8000-000000000013",
+    "nonce": "synthetic-nonce-not-for-use-in-production-0001",
+    "expires_at": "2026-11-14T10:05:00Z"
+  },
+  "GoogleExchange": {
+    "challenge_id": "00000000-0000-4000-8000-000000000013",
+    "id_token": "synthetic.invalid.token"
+  },
+  "Session": {
+    "access_token": "synthetic-session-token-not-a-real-credential",
+    "token_type": "Bearer",
+    "expires_at": "2026-11-14T18:00:00Z",
+    "user": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner",
+      "email": "owner@example.com",
+      "created_at": "2026-11-14T10:00:00Z"
+    }
+  },
+  "Me": {
+    "user": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner",
+      "email": "owner@example.com",
+      "created_at": "2026-11-14T10:00:00Z"
+    },
+    "owned_workspace_count": 1
+  },
+  "UnreadCount": {
+    "count": 1
+  },
+  "AccessContext": {
+    "actor": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner"
+    },
+    "workspace_id": "00000000-0000-4000-8000-000000000003",
+    "workspace_version": 2,
+    "actor_membership_id": "00000000-0000-4000-8000-000000000009",
+    "actor_role": "owner",
+    "members": [
+      {
+        "membership_id": "00000000-0000-4000-8000-000000000009",
+        "user": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "role": "owner",
+        "joined_at": "2026-11-14T10:00:00Z"
+      },
+      {
+        "membership_id": "00000000-0000-4000-8000-000000000010",
+        "user": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "display_name": "Dara"
+        },
+        "role": "member",
+        "joined_at": "2026-11-14T10:00:00Z"
+      }
+    ]
+  },
+  "SessionIdentity": {
+    "user": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Example Owner"
+    },
+    "session_expires_at": "2026-11-14T18:00:00Z"
+  },
+  "BoardList": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "name": "Todo",
+        "version": 1,
+        "created_at": "2026-11-14T10:00:00Z",
+        "updated_at": "2026-11-14T10:00:00Z"
+      }
+    ]
+  },
+  "MemberList": {
+    "items": [
+      {
+        "membership_id": "00000000-0000-4000-8000-000000000010",
+        "user": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "display_name": "Dara"
+        },
+        "role": "member",
+        "joined_at": "2026-11-14T10:00:00Z"
+      }
+    ]
+  },
+  "WorkspacePage": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "name": "DevOps Team",
+        "owner_id": "00000000-0000-4000-8000-000000000001",
+        "my_role": "owner",
+        "member_count": 2,
+        "version": 2,
+        "created_at": "2026-11-14T10:00:00Z",
+        "updated_at": "2026-11-14T10:00:00Z"
+      }
+    ],
+    "next_cursor": null
+  },
+  "InvitationPage": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000008",
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "workspace_name": "DevOps Team",
+        "inviter": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "recipient": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "display_name": "Dara"
+        },
+        "status": "pending",
+        "created_at": "2026-11-14T10:00:00Z",
+        "updated_at": "2026-11-14T10:00:00Z"
+      }
+    ],
+    "next_cursor": null
+  },
+  "TaskPage": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000006",
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "board_id": "00000000-0000-4000-8000-000000000004",
+        "number": 1,
+        "title": "Build task service",
+        "description": "Implement the agreed contract.",
+        "assignee": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "display_name": "Dara"
+        },
+        "start_date": "2026-11-15",
+        "due_date": "2026-11-20",
+        "creator": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "version": 1,
+        "created_at": "2026-11-14T10:00:00Z",
+        "updated_at": "2026-11-14T10:00:00Z"
+      }
+    ],
+    "next_cursor": null
+  },
+  "CommentPage": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000007",
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "task_id": "00000000-0000-4000-8000-000000000006",
+        "body": "Please review @Dara",
+        "author": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "mentions": [
+          {
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Dara"
+            },
+            "start": 14,
+            "length": 5
+          }
+        ],
+        "created_at": "2026-11-14T10:00:00Z"
+      }
+    ],
+    "next_cursor": null
+  },
+  "NotificationPage": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000011",
+        "event_id": "00000000-0000-4000-8000-000000000102",
+        "type": "assignment",
+        "actor": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "invitation_id": null,
+        "task_id": "00000000-0000-4000-8000-000000000006",
+        "comment_id": null,
+        "occurred_at": "2026-11-14T10:00:00Z",
+        "created_at": "2026-11-14T10:00:00Z",
+        "read_at": null
+      }
+    ],
+    "next_cursor": null
+  }
+}

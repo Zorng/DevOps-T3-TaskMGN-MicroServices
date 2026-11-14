@@ -1,0 +1,47 @@
+# Private coordination and machine metadata
+_notes/
+.secret/
+.DS_Store
+.DS_Store/
+Thumbs.db
+
+# Credentials and local configuration; commit placeholder examples only
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+secrets/
+.aws/
+
+# Local dependencies and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+
+# Generated outputs
+build/
+dist/
+target/
+coverage/
+.coverage
+htmlcov/
+*.log
+
+# Local persistence and infrastructure state
+*.sqlite
+*.sqlite3
+*.db
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example

@@ -1,0 +1,92 @@
+# Synthetic walkthrough; replace returned identifiers and sessions as you go.
+# Open in an HTTP client supporting .http variables, or translate to curl/Postman.
+# Google exchange requires a real credential with this challenge's nonce.
+@baseUrl = http://localhost:8080
+@frontendOrigin = http://localhost:5173
+@ownerToken = REPLACE_WITH_OWNER_APP_SESSION
+@memberToken = REPLACE_WITH_MEMBER_APP_SESSION
+@workspaceId = 00000000-0000-4000-8000-000000000003
+@boardId = 00000000-0000-4000-8000-000000000004
+@taskId = 00000000-0000-4000-8000-000000000006
+@invitationId = 00000000-0000-4000-8000-000000000008
+@memberId = 00000000-0000-4000-8000-000000000002
+
+### Obtain a challenge. Use nonce in GIS; do not submit the placeholder credential below.
+POST {{baseUrl}}/api/v1/auth/google/challenges
+Origin: {{frontendOrigin}}
+
+### Exchange the real Google credential; repeat sign-in separately for the member.
+POST {{baseUrl}}/api/v1/auth/google/exchange
+Origin: {{frontendOrigin}}
+Content-Type: application/json
+
+{"challenge_id":"00000000-0000-4000-8000-000000000013","id_token":"REPLACE_WITH_REAL_GOOGLE_ID_TOKEN"}
+
+### Owner creates workspace. Update workspaceId with returned id.
+POST {{baseUrl}}/api/v1/workspaces
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+Idempotency-Key: 10000000-0000-4000-8000-000000000001
+
+{"name":"DevOps Team"}
+
+### Owner invites an already registered member. Update invitationId.
+POST {{baseUrl}}/api/v1/workspaces/{{workspaceId}}/invitations
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+Idempotency-Key: 10000000-0000-4000-8000-000000000002
+
+{"email":"dara@example.com"}
+
+### Member accepts.
+POST {{baseUrl}}/api/v1/invitations/{{invitationId}}/response
+Authorization: Bearer {{memberToken}}
+Content-Type: application/json
+
+{"action":"accept"}
+
+### Create board. Update boardId from response.
+POST {{baseUrl}}/api/v1/workspaces/{{workspaceId}}/boards
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+Idempotency-Key: 10000000-0000-4000-8000-000000000003
+
+{"name":"Todo"}
+
+### Inspect members; obtain the real memberId for assignment/mention.
+GET {{baseUrl}}/api/v1/workspaces/{{workspaceId}}/members
+Authorization: Bearer {{ownerToken}}
+
+### Create assigned task. Update taskId and retain response ETag.
+POST {{baseUrl}}/api/v1/workspaces/{{workspaceId}}/tasks
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+Idempotency-Key: 10000000-0000-4000-8000-000000000004
+
+{"board_id":"{{boardId}}","title":"Build task service","assignee_id":"{{memberId}}","start_date":"2026-11-15","due_date":"2026-11-20"}
+
+### Add a mention. Offsets count Unicode code points; @Dara starts at 14.
+POST {{baseUrl}}/api/v1/workspaces/{{workspaceId}}/tasks/{{taskId}}/comments
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+Idempotency-Key: 10000000-0000-4000-8000-000000000005
+
+{"body":"Please review @Dara","mentions":[{"user_id":"{{memberId}}","start":14,"length":5}]}
+
+### Read notifications after asynchronous delivery.
+GET {{baseUrl}}/api/v1/notifications?unread_only=true&limit=20
+Authorization: Bearer {{memberToken}}
+
+### Update task using current ETag, replacing "1" if it has changed.
+PATCH {{baseUrl}}/api/v1/workspaces/{{workspaceId}}/tasks/{{taskId}}
+Authorization: Bearer {{memberToken}}
+Content-Type: application/json
+If-Match: "1"
+
+{"description":"Implementation started."}
+
+### Move uses PATCH {"board_id":"<another board in this workspace>"} and latest If-Match.
+### Mark-read uses POST /api/v1/notifications/<returned-id>/read with no body.
+### Sign out current member session.
+POST {{baseUrl}}/api/v1/auth/logout
+Authorization: Bearer {{memberToken}}

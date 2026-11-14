@@ -1,0 +1,2627 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Task API",
+    "version": "1.0.0",
+    "description": "Implementation contract draft for team review. Work area: Task. See ../conventions.md, ../authentication.md, and ../workflows.md. All examples are synthetic."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local gateway; replace with HTTPS gateway in deployed environment."
+    }
+  ],
+  "security": [
+    {
+      "sessionBearer": []
+    }
+  ],
+  "paths": {
+    "/api/v1/workspaces/{workspace_id}/boards": {
+      "get": {
+        "operationId": "listBoards",
+        "summary": "List workspace boards",
+        "description": "Current member. All active boards, created_at ASC then id ASC; at most five.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardList"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000004",
+                      "workspace_id": "00000000-0000-4000-8000-000000000003",
+                      "name": "Todo",
+                      "version": 1,
+                      "created_at": "2026-11-14T10:00:00Z",
+                      "updated_at": "2026-11-14T10:00:00Z"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Task API"
+        ]
+      },
+      "post": {
+        "operationId": "createBoard",
+        "summary": "Create board/status",
+        "description": "Current member. At most five active boards per workspace, enforced transactionally; 409 BOARD_LIMIT_REACHED. No default boards automatically created.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"1\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000004",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "name": "Todo",
+                  "version": 1,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Task API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameBoard"
+              },
+              "example": {
+                "name": "Todo"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/boards/{board_id}": {
+      "get": {
+        "operationId": "getBoard",
+        "summary": "Get board",
+        "description": "Current member; board must belong to workspace.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/board_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"1\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000004",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "name": "Todo",
+                  "version": 1,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Task API"
+        ]
+      },
+      "patch": {
+        "operationId": "renameBoard",
+        "summary": "Rename board/status",
+        "description": "Current member. Changes board name, not individual tasks.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/board_id"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"2\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000004",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "name": "In Progress",
+                  "version": 2,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          }
+        },
+        "tags": [
+          "Task API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameBoard"
+              },
+              "example": {
+                "name": "Todo"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteBoard",
+        "summary": "Delete board and contents",
+        "description": "Owner only. Atomically hide board/tasks/comments and release board slot; physical cleanup may follow. No task-move event.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/board_id"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          }
+        },
+        "tags": [
+          "Task API"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/tasks": {
+      "get": {
+        "operationId": "listTasks",
+        "summary": "List workspace tasks",
+        "description": "Current member. Optional board_id filters an active board in workspace; otherwise all boards. created_at DESC then id DESC.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "name": "board_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskPage"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000006",
+                      "workspace_id": "00000000-0000-4000-8000-000000000003",
+                      "board_id": "00000000-0000-4000-8000-000000000004",
+                      "number": 1,
+                      "title": "Build task service",
+                      "description": "Implement the agreed contract.",
+                      "assignee": {
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "display_name": "Dara"
+                      },
+                      "start_date": "2026-11-15",
+                      "due_date": "2026-11-20",
+                      "creator": {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "display_name": "Example Owner"
+                      },
+                      "version": 1,
+                      "created_at": "2026-11-14T10:00:00Z",
+                      "updated_at": "2026-11-14T10:00:00Z"
+                    }
+                  ],
+                  "next_cursor": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Task API"
+        ]
+      },
+      "post": {
+        "operationId": "createTask",
+        "summary": "Create task",
+        "description": "Current member. Title and board required. Optional fields default empty description and null dates/assignee. Validate date ordering and current assignee membership. Task number allocated monotonically per workspace, never reused. Emits task.assigned.v1 if assigned to another user.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"1\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000006",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "board_id": "00000000-0000-4000-8000-000000000004",
+                  "number": 1,
+                  "title": "Build task service",
+                  "description": "Implement the agreed contract.",
+                  "assignee": {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "display_name": "Dara"
+                  },
+                  "start_date": "2026-11-15",
+                  "due_date": "2026-11-20",
+                  "creator": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "version": 1,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Task API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreate"
+              },
+              "example": {
+                "board_id": "00000000-0000-4000-8000-000000000004",
+                "title": "Build task service",
+                "description": "Implement the agreed contract.",
+                "assignee_id": "00000000-0000-4000-8000-000000000002",
+                "start_date": "2026-11-15",
+                "due_date": "2026-11-20"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/tasks/{task_id}": {
+      "get": {
+        "operationId": "getTask",
+        "summary": "Get task",
+        "description": "Current member. Deleted parent board/workspace makes task unavailable. Stale assignment generations render as null.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/task_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"1\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000006",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "board_id": "00000000-0000-4000-8000-000000000004",
+                  "number": 1,
+                  "title": "Build task service",
+                  "description": "Implement the agreed contract.",
+                  "assignee": {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "display_name": "Dara"
+                  },
+                  "start_date": "2026-11-15",
+                  "due_date": "2026-11-20",
+                  "creator": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "version": 1,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Task API"
+        ]
+      },
+      "patch": {
+        "operationId": "updateTask",
+        "summary": "Edit task or move to another board",
+        "description": "Current member. Omitted fields unchanged; null clears dates/assignee, not title/description/board. Validate resulting date pair. board_id moves within workspace only. Unknown fields (status, priority, custom fields) rejected. Same assignee is no-op; unassignment and board moves do not notify. New other assignee emits task.assigned.v1.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/task_id"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
+                },
+                "description": "Quoted integer version; send as If-Match.",
+                "example": "\"2\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000006",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "board_id": "00000000-0000-4000-8000-000000000005",
+                  "number": 1,
+                  "title": "Build task service",
+                  "description": "Implement the agreed contract.",
+                  "assignee": {
+                    "id": "00000000-0000-4000-8000-000000000002",
+                    "display_name": "Dara"
+                  },
+                  "start_date": "2026-11-15",
+                  "due_date": "2026-11-20",
+                  "creator": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "version": 2,
+                  "created_at": "2026-11-14T10:00:00Z",
+                  "updated_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          }
+        },
+        "tags": [
+          "Task API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskPatch"
+              },
+              "example": {
+                "board_id": "00000000-0000-4000-8000-000000000005"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteTask",
+        "summary": "Delete task and comments",
+        "description": "Current member. Task/comments become inaccessible; notification records remain historical.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/task_id"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          }
+        },
+        "tags": [
+          "Task API"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/tasks/{task_id}/comments": {
+      "get": {
+        "operationId": "listComments",
+        "summary": "List task comments",
+        "description": "Current member. created_at ASC then id ASC. Author/mention names are creation-time snapshots.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/task_id"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentPage"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "id": "00000000-0000-4000-8000-000000000007",
+                      "workspace_id": "00000000-0000-4000-8000-000000000003",
+                      "task_id": "00000000-0000-4000-8000-000000000006",
+                      "body": "Please review @Dara",
+                      "author": {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "display_name": "Example Owner"
+                      },
+                      "mentions": [
+                        {
+                          "user": {
+                            "id": "00000000-0000-4000-8000-000000000002",
+                            "display_name": "Dara"
+                          },
+                          "start": 14,
+                          "length": 5
+                        }
+                      ],
+                      "created_at": "2026-11-14T10:00:00Z"
+                    }
+                  ],
+                  "next_cursor": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "tags": [
+          "Task API"
+        ]
+      },
+      "post": {
+        "operationId": "createComment",
+        "summary": "Add comment with explicit mentions",
+        "description": "Current member. Non-whitespace body. Mention offsets use Unicode code points in the exact body, zero-based and non-overlapping. Each range selects @display text; user ID determines recipient, not text matching. All mentioned users must be current members. Up to 50 ranges and 20 distinct recipients. Duplicate user ranges allowed, one event per distinct non-author recipient. Invalid membership or range: 422. No editing/deleting endpoint.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/workspace_id"
+          },
+          {
+            "$ref": "#/components/parameters/task_id"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                },
+                "example": {
+                  "id": "00000000-0000-4000-8000-000000000007",
+                  "workspace_id": "00000000-0000-4000-8000-000000000003",
+                  "task_id": "00000000-0000-4000-8000-000000000006",
+                  "body": "Please review @Dara",
+                  "author": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "display_name": "Example Owner"
+                  },
+                  "mentions": [
+                    {
+                      "user": {
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "display_name": "Dara"
+                      },
+                      "start": 14,
+                      "length": 5
+                    }
+                  ],
+                  "created_at": "2026-11-14T10:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          }
+        },
+        "tags": [
+          "Task API"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentCreate"
+              },
+              "example": {
+                "body": "Please review @Dara",
+                "mentions": [
+                  {
+                    "user_id": "00000000-0000-4000-8000-000000000002",
+                    "start": 14,
+                    "length": 5
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "Tasklive",
+        "summary": "Service live",
+        "description": "Process responds; does not test dependencies.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "ok"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "unavailable"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Task API"
+        ],
+        "security": []
+      },
+      "servers": [
+        {
+          "url": "http://task:8001",
+          "description": "Private direct service probe; not exposed by public gateway."
+        }
+      ]
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "Taskready",
+        "summary": "Service ready",
+        "description": "Can serve required synchronous operations: database available; Task/Notification can reach Identity. Broker outage alone does not fail readiness if outbox can safely persist. 503 when unavailable.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "ok"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "description": "Correlation UUID."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "unavailable"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Task API"
+        ],
+        "security": []
+      },
+      "servers": [
+        {
+          "url": "http://task:8001",
+          "description": "Private direct service probe; not exposed by public gateway."
+        }
+      ]
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque application session issued by Google exchange; NOT a Google ID token."
+      },
+      "serviceKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Service-Key",
+        "description": "Per-caller secret. Task and Notification have distinct keys and endpoint allowlists."
+      }
+    },
+    "parameters": {
+      "RequestId": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Optional correlation UUID; gateway generates/replaces invalid values and echoes a UUID."
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Client-generated UUID; retain the same value on retry. Scope and 24-hour retention: conventions.md."
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^\"[1-9][0-9]*\"$"
+        },
+        "description": "Strong version ETag, e.g. \"3\". Required on resource PATCH/DELETE. Stale: 412; missing: 428."
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "description": "Opaque cursor from the same list, user, and filters. Invalid cursor: 400."
+      },
+      "workspace_id": {
+        "name": "workspace_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "board_id": {
+        "name": "board_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "task_id": {
+        "name": "task_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "invitation_id": {
+        "name": "invitation_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "notification_id": {
+        "name": "notification_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "user_id": {
+        "name": "user_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "schemas": {
+      "UserSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "display_name": "Example Owner"
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 150
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "details"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "error": {
+              "code": "VALIDATION_FAILED",
+              "message": "The request contains invalid fields.",
+              "request_id": "00000000-0000-4000-8000-000000000012",
+              "details": [
+                {
+                  "field": "due_date",
+                  "reason": "Must be on or after start_date."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "Board": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "name",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000004",
+            "workspace_id": "00000000-0000-4000-8000-000000000003",
+            "name": "Todo",
+            "version": 1,
+            "created_at": "2026-11-14T10:00:00Z",
+            "updated_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "board_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 5000
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "creator": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "board_id",
+          "number",
+          "title",
+          "description",
+          "assignee",
+          "start_date",
+          "due_date",
+          "creator",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000006",
+            "workspace_id": "00000000-0000-4000-8000-000000000003",
+            "board_id": "00000000-0000-4000-8000-000000000004",
+            "number": 1,
+            "title": "Build task service",
+            "description": "Implement the agreed contract.",
+            "assignee": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Dara"
+            },
+            "start_date": "2026-11-15",
+            "due_date": "2026-11-20",
+            "creator": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner"
+            },
+            "version": 1,
+            "created_at": "2026-11-14T10:00:00Z",
+            "updated_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "MentionInput": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1999
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "user_id",
+          "start",
+          "length"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "user_id": "00000000-0000-4000-8000-000000000002",
+            "start": 14,
+            "length": 5
+          }
+        ]
+      },
+      "Mention": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1999
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "user",
+          "start",
+          "length"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Dara"
+            },
+            "start": 14,
+            "length": 5
+          }
+        ]
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "author": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mention"
+            },
+            "maxItems": 50
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "task_id",
+          "body",
+          "author",
+          "mentions",
+          "created_at"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "id": "00000000-0000-4000-8000-000000000007",
+            "workspace_id": "00000000-0000-4000-8000-000000000003",
+            "task_id": "00000000-0000-4000-8000-000000000006",
+            "body": "Please review @Dara",
+            "author": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner"
+            },
+            "mentions": [
+              {
+                "user": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "display_name": "Dara"
+                },
+                "start": 14,
+                "length": 5
+              }
+            ],
+            "created_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unavailable"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "status": "ok"
+          }
+        ]
+      },
+      "NameBoard": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "name": "Todo"
+          }
+        ]
+      },
+      "TaskCreate": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 5000,
+            "default": ""
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "board_id",
+          "title"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "board_id": "00000000-0000-4000-8000-000000000004",
+            "title": "Build task service",
+            "description": "Implement the agreed contract.",
+            "assignee_id": "00000000-0000-4000-8000-000000000002",
+            "start_date": "2026-11-15",
+            "due_date": "2026-11-20"
+          }
+        ]
+      },
+      "TaskPatch": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 5000
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false,
+        "minProperties": 1,
+        "examples": [
+          {
+            "board_id": "00000000-0000-4000-8000-000000000005"
+          }
+        ]
+      },
+      "CommentCreate": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MentionInput"
+            },
+            "maxItems": 50,
+            "default": []
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "body": "Please review @Dara",
+            "mentions": [
+              {
+                "user_id": "00000000-0000-4000-8000-000000000002",
+                "start": 14,
+                "length": 5
+              }
+            ]
+          }
+        ]
+      },
+      "TaskPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            },
+            "maxItems": 100
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "items": [
+              {
+                "id": "00000000-0000-4000-8000-000000000006",
+                "workspace_id": "00000000-0000-4000-8000-000000000003",
+                "board_id": "00000000-0000-4000-8000-000000000004",
+                "number": 1,
+                "title": "Build task service",
+                "description": "Implement the agreed contract.",
+                "assignee": {
+                  "id": "00000000-0000-4000-8000-000000000002",
+                  "display_name": "Dara"
+                },
+                "start_date": "2026-11-15",
+                "due_date": "2026-11-20",
+                "creator": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "display_name": "Example Owner"
+                },
+                "version": 1,
+                "created_at": "2026-11-14T10:00:00Z",
+                "updated_at": "2026-11-14T10:00:00Z"
+              }
+            ],
+            "next_cursor": null
+          }
+        ]
+      },
+      "CommentPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            },
+            "maxItems": 100
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "items": [
+              {
+                "id": "00000000-0000-4000-8000-000000000007",
+                "workspace_id": "00000000-0000-4000-8000-000000000003",
+                "task_id": "00000000-0000-4000-8000-000000000006",
+                "body": "Please review @Dara",
+                "author": {
+                  "id": "00000000-0000-4000-8000-000000000001",
+                  "display_name": "Example Owner"
+                },
+                "mentions": [
+                  {
+                    "user": {
+                      "id": "00000000-0000-4000-8000-000000000002",
+                      "display_name": "Dara"
+                    },
+                    "start": 14,
+                    "length": 5
+                  }
+                ],
+                "created_at": "2026-11-14T10:00:00Z"
+              }
+            ],
+            "next_cursor": null
+          }
+        ]
+      },
+      "BoardList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Board"
+            },
+            "maxItems": 5
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "items": [
+              {
+                "id": "00000000-0000-4000-8000-000000000004",
+                "workspace_id": "00000000-0000-4000-8000-000000000003",
+                "name": "Todo",
+                "version": 1,
+                "created_at": "2026-11-14T10:00:00Z",
+                "updated_at": "2026-11-14T10:00:00Z"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "responses": {
+      "400": {
+        "description": "Malformed JSON, parameter, or cursor.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Missing, invalid, expired, or revoked credentials.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "403": {
+        "description": "Authenticated actor lacks permission.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "Resource does not exist, is deleted, or is hidden from this actor.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "409": {
+        "description": "Business conflict, capacity limit, terminal invitation, or idempotency key conflict.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "412": {
+        "description": "If-Match version is stale.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "413": {
+        "description": "Request body exceeds 64 KiB.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "415": {
+        "description": "Unsupported content type; JSON required.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "422": {
+        "description": "Schema or business-field validation failed.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "428": {
+        "description": "Required If-Match missing.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "429": {
+        "description": "Rate limit exceeded.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Seconds before retry."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "Unexpected internal failure.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "503": {
+        "description": "Required dependency unavailable; fail closed.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Correlation UUID."
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "no-store"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Seconds before retry."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}
