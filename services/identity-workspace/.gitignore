@@ -1,0 +1,6 @@
+# Service-local tool bootstrap, caches, and generated verification reports
+.tools/
+.uv-cache/
+test-results/
+*.egg-info/
+.secrets/

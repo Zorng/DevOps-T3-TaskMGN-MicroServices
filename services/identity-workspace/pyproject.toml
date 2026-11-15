@@ -1,0 +1,41 @@
+[project]
+name = "identity-workspace-service"
+version = "0.1.0"
+description = "Identity and Workspace microservice foundation"
+readme = "docs/environment-setup.md"
+requires-python = ">=3.13.16,<3.14"
+dependencies = [
+    "alembic>=1,<2",
+    "fastapi==0.163.0",
+    "prometheus-client>=0.20,<1",
+    "psycopg[binary]>=3,<4",
+    "pydantic>=2,<3",
+    "pydantic-settings>=2,<3",
+    "sqlalchemy>=2,<3",
+    "uvicorn>=0.30,<1",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16,<3",
+    "pytest>=8,<10",
+]
+
+[build-system]
+requires = ["uv_build==0.13.8"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = "==0.13.8"
+prerelease = "disallow"
+python-downloads = "never"
+
+[tool.uv.build-backend]
+module-name = "identity_workspace"
+source-include = ["alembic.ini", "migrations/**"]
+source-exclude = ["/.tools", "/.uv-cache", "/.venv", "/.env", "/.env.*", "/dist", "/test-results"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-config", "--strict-markers", "--tb=short", "--import-mode=importlib"]
+filterwarnings = ["error"]
