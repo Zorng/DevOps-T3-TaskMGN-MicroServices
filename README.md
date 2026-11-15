@@ -23,6 +23,33 @@ Each backend directory is its own build context and will contain its own depende
 
 Start with the [product specification](docs/product-specification.md), [API contract guide](api_contracts/README.md), and [contribution guide](CONTRIBUTING.md). Component READMEs describe their technical scope and implementation expectations.
 
+## Branching and pull requests
+
+Use short-lived branches from the latest `main`, with one focused change per branch. Name branches by change type and work area:
+
+```text
+feat/task/create-task
+feat/identity-workspace/google-signin
+feat/notification/consume-assignment
+feat/gateway/service-routing
+feat/frontend/workspace-page
+fix/task/assignment-validation
+ci/contracts-validation
+docs/api-contracts
+```
+
+Use `feat/<area>/<description>` or `fix/<area>/<description>` for component changes, and `ci/<description>` or `docs/<description>` for shared changes. Use lowercase, hyphen-separated descriptions and work-area names, not personal names or aliases. A backlog number is not required in the branch name.
+
+1. Branch from the latest `main` once the repository has its initial commit.
+2. Implement a focused change with relevant tests and documentation.
+3. Open a PR into `main`, linking the backlog item or existing issue when one exists. Use a draft PR for unfinished work needing feedback.
+4. Obtain approval from at least one other member and pass the relevant CI checks.
+5. Squash merge the approved PR, then delete the branch.
+
+Keep `main` working; do not commit task changes directly to it. Avoid permanent branches per person or service. Changes spanning services may share one branch and PR when they must land together, such as an event schema and its producer/consumer updates. Include review from affected work areas.
+
+Review requirements are team policy; repository branch protection must be configured separately. See [CONTRIBUTING.md](CONTRIBUTING.md) for implementation and review guidance.
+
 ## Validate contracts locally
 
 Python 3.13 and GNU Make are used for contract tooling; this does not prescribe the backend languages.
@@ -51,3 +78,11 @@ Frontend requests go through the gateway. Backend services use REST for synchron
 The deployment targets are Oracle Cloud for backend infrastructure and Netlify for the frontend. Broker software, framework choices, and VM allocation remain undecided. There is no runnable Compose environment yet; orchestration will be added when component build/run commands are defined. See [infrastructure scope](infra/README.md).
 
 Service-specific build/test/image workflows will accompany their implementations. They should react to their component paths and relevant shared contracts; contract changes require affected integrations to be checked as well. The existing workflow validates contracts only, not service code or deployment.
+
+## Testing requirements
+
+Every implemented service endpoint must have dedicated unit tests for its handler/application behavior and request-level tests for its HTTP contract. Cover success and relevant failure cases, including permissions and validation. Private endpoints, health probes, and event-processing behavior also need appropriate tests.
+
+Each service adds its unit-test and endpoint-test CI jobs with its implementation. Relevant tests must pass before merging or publishing/deploying images. Shared contract changes trigger affected service checks. See [the testing and CI policy](CONTRIBUTING.md#endpoint-tests-and-ci-requirements).
+
+Service test commands will follow the selected stacks. Currently only contract-validation CI is implemented; there are no service test suites yet.
