@@ -48,22 +48,23 @@ Replace the placeholder password in `.env`. Do not commit it. Start just the iso
 docker compose up -d --wait db
 ```
 
-Export the values from the trusted local `.env` file, then launch Spring Boot:
+Launch Spring Boot with the helper, which exports the trusted local `.env` values and checks the required database settings:
 
 ```sh
-set -a
-. ./.env
-set +a
-./mvnw spring-boot:run
+./scripts/dev.sh
 ```
+
+Alternatively, export the trusted `.env` values with `set -a; . ./.env; set +a` and run `./mvnw spring-boot:run` directly.
 
 Task listens on port 8001; PostgreSQL is bound to localhost port 5433. Flyway applies migrations at startup. Database unavailability at startup prevents migration/startup; after startup, health endpoints report dependency outages as described below.
 
 To build and run both database and app as containers instead:
 
 ```sh
-docker compose --profile app up --build -d --wait
+./scripts/all-up.sh
 ```
+
+This requires `.env`, builds the app image, and starts the database and app in the background. Compose waits for the database health check; the app has no Compose health check, so this does not verify app readiness.
 
 The container's JDBC URL uses the Compose `db` hostname. Identity defaults to the host's port 8000 through `host.docker.internal`; override `TASK_CONTAINER_IDENTITY_BASE_URL` for another deployment. Do not set it to the Task service itself. This is a Task-only development stack, not the full application Compose environment.
 
@@ -77,10 +78,10 @@ Liveness returns 200 with `{"status":"ok"}` without checking dependencies. Readi
 Stop the local stack while preserving database data:
 
 ```sh
-docker compose --profile app down
+./scripts/all-down.sh
 ```
 
-Adding `--volumes` deletes the local database contents; only do that when intentionally resetting development data. No broker is configured yet, and broker availability does not participate in this scaffold's readiness checks.
+The script requires `.env`, stops and removes the stack containers and network, and preserves volumes. To intentionally reset the local database, run `docker compose --profile app down --volumes` directly; this deletes the database contents. No broker is configured yet, and broker availability does not participate in this scaffold's readiness checks.
 
 ## Configuration
 
@@ -120,8 +121,7 @@ Every subsequent domain endpoint needs its own unit and request-level tests in i
 ## Build an image
 
 ```sh
-./mvnw --batch-mode --no-transfer-progress package
-docker build -t task-service:local .
+./scripts/build.sh
 ```
 
-The multistage image uses Java 25 and a non-root runtime user. Its build context is this service directory. The Docker packaging step skips tests because CI runs the complete suites before this job; manually run the verification command above before publishing. Base image tags support architecture-specific builds; verify/build an ARM64 image for Oracle ARM instances. No registry credentials, local `.env`, or generated `target/` content enter the build context.
+This builds only the `task-service:local` image and does not require `.env` or start containers. The multistage image uses Java 25 and a non-root runtime user. Its build context is this service directory. The Docker packaging step skips tests because CI runs the complete suites before this job; manually run the verification command above before publishing. Base image tags support architecture-specific builds; verify/build an ARM64 image for Oracle ARM instances. No registry credentials, local `.env`, or generated `target/` content enter the build context.
