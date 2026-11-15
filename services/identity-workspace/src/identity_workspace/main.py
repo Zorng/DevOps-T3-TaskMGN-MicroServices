@@ -12,6 +12,10 @@ from starlette.exceptions import HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from identity_workspace.config import Settings, load_settings
+from identity_workspace.auth.google import GoogleTokenVerifier
+from identity_workspace.auth.routes import router as auth_router
+from identity_workspace.auth.service import AuthService
+from identity_workspace.auth.store import AuthStore
 from identity_workspace.database import DatabaseResources, create_database
 from identity_workspace.health import router as health_router
 from identity_workspace.errors import APIError, api_error_handler, http_error_handler, validation_error_handler
@@ -28,15 +32,27 @@ def create_app(
     *,
     database_factory: Callable[[Settings], DatabaseResources] = create_database,
     log_stream: TextIO | None = None,
+    google_verifier_factory=GoogleTokenVerifier,
+    auth_store_factory=AuthStore,
 ) -> FastAPI:
     app_settings = settings if settings is not None else load_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         startup_failed = False
+        database = verifier = None
         try:
             database = await run_in_threadpool(database_factory, app_settings)
+            verifier = google_verifier_factory(app_settings)
+            app.state.auth = AuthService(auth_store_factory(database), verifier, app_settings)
         except Exception:
+            for resource in (verifier, database):
+                if resource is not None:
+                    try:
+                        await run_in_threadpool(resource.close)
+                    except Exception:
+                        pass
+            app.state.auth = None
             app.state.observability.log.event(logging.ERROR, "application_startup_failed", error_category="startup_failed")
             app.state.observability.close()
             startup_failed = True
@@ -50,11 +66,14 @@ def create_app(
         finally:
             shutdown_failed = False
             try:
-                await run_in_threadpool(database.close)
-            except Exception:
-                app.state.observability.log.event(logging.ERROR, "application_shutdown_failed", error_category="shutdown_failed")
-                shutdown_failed = True
+                for resource in (verifier, database):
+                    try:
+                        await run_in_threadpool(resource.close)
+                    except Exception:
+                        app.state.observability.log.event(logging.ERROR, "application_shutdown_failed", error_category="shutdown_failed")
+                        shutdown_failed = True
             finally:
+                app.state.auth = None
                 app.state.database = None
                 app.state.observability.log.event(logging.INFO, "application_stopped")
                 app.state.observability.close()
@@ -71,12 +90,14 @@ def create_app(
     )
     app.state.settings = app_settings
     app.state.database = None
+    app.state.auth = None
     app.router.redirect_slashes = False
     app.add_exception_handler(APIError, api_error_handler)
     app.add_exception_handler(HTTPException, http_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.include_router(health_router)
     app.include_router(metrics_router)
+    app.include_router(auth_router)
 
     def route_names():
         return {

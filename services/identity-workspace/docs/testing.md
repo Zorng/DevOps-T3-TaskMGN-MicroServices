@@ -2,6 +2,8 @@
 
 The scaffold has separate unit, HTTP request, and real PostgreSQL integration suites. Run all three before submitting changes. These commands test the implemented foundation; business API and event delivery tests accompany their later implementation tasks.
 
+[Google sign-in/session tests](google-signin.md#automated-verification) now cover all four authentication endpoints, offline signature/claim checks, and real database atomicity/concurrency. Pytest blocks the requests HTTP transport by default; tests inject a Google verifier or key-transport double and need no real provider credentials.
+
 ## Prerequisites
 
 Complete [environment setup](environment-setup.md) to install Python 3.13.16, uv 0.13.8, and the locked development dependencies. Run commands from `services/identity-workspace/`.

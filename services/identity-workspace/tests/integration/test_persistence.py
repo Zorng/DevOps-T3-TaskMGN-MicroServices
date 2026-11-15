@@ -8,7 +8,7 @@ from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from identity_workspace.database import create_database
-from identity_workspace.persistence import outbox
+from identity_workspace.persistence import SCHEMA_REVISION, metadata, outbox
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[4] / "api_contracts"
 
@@ -30,8 +30,8 @@ def append_event(session, event, **overrides):
 def test_migration_applies_to_empty_database_and_repeated_upgrade_is_safe(database, migrate):
     migrate()
     with database.engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0001_identity_foundation"
-        assert inspect(connection).get_table_names(schema="identity_workspace") == ["outbox"]
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == SCHEMA_REVISION
+        assert set(inspect(connection).get_table_names(schema="identity_workspace")) == {table.name for table in metadata.tables.values()}
         assert "outbox_pending" in {index["name"] for index in inspect(connection).get_indexes("outbox", schema="identity_workspace")}
     migrate("check")
 

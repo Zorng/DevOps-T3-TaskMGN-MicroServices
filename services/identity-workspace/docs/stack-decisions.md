@@ -18,6 +18,9 @@ Python + FastAPI is confirmed by the scaffold task; PostgreSQL 18.7 is the selec
 | HTTPX2 | 2.16.0 | HTTP request tests through FastAPI/Starlette TestClient |
 | Prometheus Python client | 0.26.0 | Private operational metrics |
 | Python standard-library logging | Included with Python 3.13.16 | Structured JSON logs with explicit safe fields and credential redaction |
+| Google Auth | 2.62.2, requests extra | Supported Google OAuth ID-token signature/issuer/audience/time verification |
+| CacheControl | 0.14.4 | HTTP-header-aware public verification-key caching |
+| email-validator | 2.4.0 | Provider email format validation without DNS/deliverability lookups |
 
 The [FastAPI release notes](https://fastapi.tiangolo.com/release-notes/#01630-2026-11-14) document the selected framework release. See [SQLAlchemy's Psycopg integration](https://docs.sqlalchemy.org/en/21/dialects/postgresql.html#module-sqlalchemy.dialects.postgresql.psycopg), [Alembic documentation](https://alembic.sqlalchemy.org/en/latest/), and [uv locking guidance](https://docs.astral.sh/uv/concepts/projects/sync/) for the supporting tooling. The versions above are resolved in [uv.lock](../uv.lock). Step 5 selects HTTPX2 because [Starlette's current test client](https://starlette.dev/testclient/) deprecates plain HTTPX. Locked installation, dependency consistency, imports, unit/request tests, real PostgreSQL 18.7 integration tests, and [health endpoints](health-probes.md) are verified with the Windows application environment. Step 11 verifies the [service image](container.md) on Linux/amd64; ARM64 application execution remains unverified.
 

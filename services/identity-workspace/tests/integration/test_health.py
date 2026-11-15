@@ -6,6 +6,7 @@ from sqlalchemy import event, text
 
 from identity_workspace.database import create_database
 from identity_workspace.main import create_app
+from identity_workspace.persistence import SCHEMA_REVISION
 
 
 def assert_health(client, ready_status):
@@ -52,7 +53,7 @@ def test_readiness_rejects_wrong_schema_revision(database, postgres):
             assert_health(client, 503)
     finally:
         with database.engine.begin() as connection:
-            connection.execute(text("UPDATE public.alembic_version SET version_num = '0001_identity_foundation'"))
+            connection.execute(text("UPDATE public.alembic_version SET version_num = :revision"), {"revision": SCHEMA_REVISION})
 
 
 def test_readiness_rejects_missing_outbox(database, postgres):

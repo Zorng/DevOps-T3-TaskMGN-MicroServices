@@ -91,7 +91,10 @@ def database(postgres):
     try:
         run_migration(database)
         with database.engine.begin() as connection:
-            connection.execute(text("TRUNCATE identity_workspace.outbox"))
+            connection.execute(text(
+                "TRUNCATE identity_workspace.outbox, identity_workspace.sessions, "
+                "identity_workspace.auth_challenges, identity_workspace.users, identity_workspace.auth_rate_limits CASCADE"
+            ))
         yield database
     finally:
         database.close()

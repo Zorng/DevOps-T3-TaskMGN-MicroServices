@@ -2,7 +2,7 @@
 
 This task establishes the Python/FastAPI application, service-owned PostgreSQL database and migration tooling, health endpoints, shared request/error handling, structured logging, metrics, automated tests, container setup, and CI verification.
 
-Authentication, user profiles, workspace operations, memberships, invitations, private authorization APIs, and business-event publishing are subsequent implementation tasks.
+The follow-up [Google sign-in and application-session task](google-signin.md) implements challenge/exchange/logout/current-user routes and migration `0002_google_sessions`. Workspace operations, memberships, invitations, private authorization APIs, and business-event publishing remain subsequent tasks.
 
 Status: planning, dependency setup, configuration, application lifecycle, PostgreSQL Compose, migrations, outbox storage, health endpoints, shared HTTP handling, structured logs/private metrics, unit/request/database integration tests, the service container, and the CI workflow are implemented. See [application startup](application-startup.md), [database setup](database-setup.md), [health probes](health-probes.md), [HTTP handling](http-contract.md), [observability](observability.md), the [container guide](container.md), and the [CI guide](ci.md) for commands and verification. Hosted GitHub verification and actual registry publishing remain unverified; local checks do not establish a passing remote pipeline.
 

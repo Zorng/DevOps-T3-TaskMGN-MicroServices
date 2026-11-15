@@ -48,9 +48,14 @@ class Docker:
         return self.run(*self.compose_args, *args)
 
 
-def request(base_url, path, expected_status):
+def request(base_url, path, expected_status, *, method="GET", body=None, headers=None):
     request_id = str(uuid4())
-    operation = urllib.request.Request(base_url + path, headers={"X-Request-ID": request_id})
+    request_headers = {**(headers or {}), "X-Request-ID": request_id}
+    data = None
+    if body is not None:
+        request_headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+    operation = urllib.request.Request(base_url + path, headers=request_headers, method=method, data=data)
     try:
         response = urllib.request.urlopen(operation, timeout=15)
     except urllib.error.HTTPError as error:
@@ -101,6 +106,9 @@ def smoke(image, skip_build, report):
                 config.read_text(encoding="utf-8").replace("IDENTITY_LOG_LEVEL=INFO", "IDENTITY_LOG_LEVEL=DEBUG"),
                 encoding="utf-8",
             )
+            # A container smoke run must never use live Google configuration.
+            lines = [line for line in config.read_text(encoding="utf-8").splitlines() if not line.startswith("IDENTITY_GOOGLE_CLIENT_ID=")]
+            config.write_text("\n".join([*lines, "IDENTITY_GOOGLE_CLIENT_ID=", ""]), encoding="utf-8")
             compose_env = directory / "compose.env"
             compose_env.write_text("", encoding="utf-8")
             environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("IDENTITY_")}
@@ -157,6 +165,16 @@ def smoke(image, skip_build, report):
                 base_url = f"http://127.0.0.1:{port}"
                 health(base_url, 200)
                 record("Live/ready return 200; headers, JSON shapes, and metrics are correct without a broker")
+                google_probe = "synthetic-google-probe-" + uuid4().hex
+                for path, method, expected, payload, code in [
+                    ("/api/v1/auth/google/challenges", "POST", 503, None, "DEPENDENCY_UNAVAILABLE"),
+                    ("/api/v1/auth/google/exchange", "POST", 503, {"challenge_id": str(uuid4()), "id_token": google_probe}, "DEPENDENCY_UNAVAILABLE"),
+                    ("/api/v1/auth/logout", "POST", 401, None, "AUTH_REQUIRED"),
+                    ("/api/v1/me", "GET", 401, None, "AUTH_REQUIRED"),
+                ]:
+                    _, payload_text = request(base_url, path, expected, method=method, body=payload, headers={"Origin": "http://localhost:5173"})
+                    require(json.loads(payload_text)["error"]["code"] == code, "Packaged auth route returned the wrong error.")
+                record("Packaged authentication routes enforce Google configuration and bearer requirements")
                 credential = f"synthetic-smoke-secret-{uuid4().hex}"
                 _, error_body = request(base_url, f"/missing/{credential}", 404)
                 _, query_error = request(base_url, f"/health/live?credential={credential}", 400)
@@ -178,7 +196,7 @@ def smoke(image, skip_build, report):
                 # a forced SIGKILL (137), OOM, or shutdown error must fail.
                 require(stopped["ExitCode"] in {0, 143} and not stopped["OOMKilled"] and not stopped["Error"], "Application did not stop cleanly.")
                 logs = docker.compose("logs", "--no-color", "--no-log-prefix", "identity", "migrate")
-                require(not any(secret in logs for secret in (*docker.secrets, credential)), "Container logs contain sensitive input.")
+                require(not any(secret in logs for secret in (*docker.secrets, credential, google_probe)), "Container logs contain sensitive input.")
                 require(credential not in outage_metrics + recovered_metrics, "Metrics contain sensitive input.")
                 events = [json.loads(line) for line in logs.splitlines() if line.startswith("{")]
                 event_names = {item.get("event") for item in events}
