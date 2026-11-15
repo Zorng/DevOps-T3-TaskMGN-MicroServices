@@ -18,9 +18,9 @@ Liveness performs no database, broker, Google, or other network checks. It runs 
 
 Readiness uses the existing SQLAlchemy pool in a worker thread. A fresh query verifies:
 
-- Exactly one migration revision, matching `SCHEMA_REVISION` in `persistence.py` (currently `0001_identity_foundation`).
+- Exactly one migration revision, matching `SCHEMA_REVISION` in `persistence.py` (currently `0002_google_sessions`).
 - A read-write connection to the primary database, rather than recovery/read-only mode.
-- The migrated outbox table exists and the application role has SELECT, INSERT, and UPDATE privileges on it.
+- The migrated outbox and authentication tables exist and the application role has SELECT, INSERT, and UPDATE privileges on them.
 
 No rows are inserted, updated, or deleted by this probe. It performs no migration, login, business action, broker call, or event publication. Query/connection/pool waits use the bounded settings documented in [application startup](application-startup.md#configuration); these are separate stage limits, not a single overall HTTP deadline. Missing/unstarted resources, unsuccessful checks, and probe exceptions produce 503. Successful readiness is not cached between requests.
 

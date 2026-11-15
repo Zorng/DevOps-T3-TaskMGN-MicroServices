@@ -6,7 +6,10 @@ readme = "docs/environment-setup.md"
 requires-python = ">=3.13.16,<3.14"
 dependencies = [
     "alembic>=1,<2",
+    "cachecontrol>=0.14,<1",
+    "email-validator>=2,<3",
     "fastapi==0.163.0",
+    "google-auth[requests]>=2,<3",
     "prometheus-client>=0.20,<1",
     "psycopg[binary]>=3,<4",
     "pydantic>=2,<3",

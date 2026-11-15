@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
 & $identityUv run --locked alembic check
 ```
 
-Expected revision: `0001_identity_foundation (head)`. `alembic check` should report no new upgrade operations. Repeating `upgrade head` is safe. Migrations run explicitly, once before application startup; application workers do not create or alter tables automatically. See [Alembic's migration tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html).
+Expected revision: `0002_google_sessions (head)`. `alembic check` should report no new upgrade operations. Repeating `upgrade head` is safe. Migrations run explicitly, once before application startup; application workers do not create or alter tables automatically. See [Alembic's migration tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html).
 
 `alembic.ini` contains no URL or credentials. Online migrations use the same validated settings and bounded database connection/query timeouts as the application. SQL parameters are hidden, and URL passwords are not interpolated through INI configuration. Offline SQL generation needs no database credentials:
 
@@ -69,6 +69,8 @@ Constraints reject duplicate event IDs, negative attempt counts, non-Identity ev
 Use `Database.transaction()` for both a future business change and its outbox insert. A local commit retains the pending event without requiring a broker. A rollback removes both effects. Full event-schema validation, immutable publication payload handling, publisher confirmations, retries, retention, and broker delivery will accompany the producer/publisher tasks; this migration is storage groundwork, not an implemented event producer.
 
 No user, session, workspace, membership, or invitation business tables are introduced by this foundation. Test-only transaction probe tables exist solely inside disposable integration databases.
+
+The follow-up [authentication migration](google-signin.md#flow-and-persistence), `0002_google_sessions`, adds users, challenge hashes, session hashes, and shared rate-limit buckets while preserving outbox storage. It introduces no workspace/membership/invitation tables. Session/challenge lifetimes and Google-subject identity constraints are enforced in PostgreSQL; the authentication guide documents bounded cleanup.
 
 ## Persistence and troubleshooting
 

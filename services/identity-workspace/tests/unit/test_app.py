@@ -60,3 +60,24 @@ def test_cleanup_failure_still_clears_resource_reference(settings):
             assert app.state.database is database
     assert app.state.database is None
     database.close.assert_called_once()
+
+
+def test_authentication_startup_failure_disposes_already_created_database(settings):
+    database = Mock()
+    app = create_app(settings, database_factory=Mock(return_value=database), google_verifier_factory=Mock(side_effect=RuntimeError("synthetic-sensitive-provider-detail")))
+    with pytest.raises(RuntimeError, match="Identity application startup failed"):
+        with TestClient(app):
+            pytest.fail("Startup must not succeed.")
+    database.close.assert_called_once()
+    assert app.state.auth is None and app.state.database is None
+
+
+def test_provider_cleanup_failure_still_disposes_database(settings):
+    database, verifier = Mock(), Mock()
+    verifier.close.side_effect = RuntimeError("synthetic-sensitive-provider-detail")
+    app = create_app(settings, database_factory=Mock(return_value=database), google_verifier_factory=Mock(return_value=verifier))
+    with pytest.raises(RuntimeError, match="Identity application shutdown failed"):
+        with TestClient(app):
+            pass
+    database.close.assert_called_once()
+    assert app.state.auth is None and app.state.database is None

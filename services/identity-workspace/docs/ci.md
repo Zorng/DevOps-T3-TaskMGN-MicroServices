@@ -29,6 +29,8 @@ Pull-request runs for the same ref cancel older runs. Main runs are serialized r
 
 Test jobs use Ubuntu 24.04, Python 3.13.16 from [.python-version](../.python-version), uv 0.13.8, and `uv sync --locked`. GitHub actions are pinned to immutable commits. The container uses the separately digest-pinned Python/uv images documented in the [container guide](container.md). No developer environment file or database password is uploaded to GitHub.
 
+Google sign-in/session tests inject verifier or key-transport doubles, and pytest blocks real requests HTTP calls. The job explicitly supplies an empty Google client-ID setting; tests use synthetic configuration and ephemeral signature keys. Real Google project provisioning/browser verification is separate and documented in [Google sign-in](google-signin.md).
+
 Each matrix entry runs the equivalent of these commands from the service directory, with `unit`, `request`, or `integration` as the suite:
 
 ```text

@@ -14,9 +14,11 @@ READINESS_QUERY = text(
     "SELECT version_num = :expected_revision "
     "AND current_setting('transaction_read_only') = 'off' "
     "AND NOT pg_is_in_recovery() "
-    "AND has_table_privilege('identity_workspace.outbox', 'SELECT') "
-    "AND has_table_privilege('identity_workspace.outbox', 'INSERT') "
-    "AND has_table_privilege('identity_workspace.outbox', 'UPDATE') "
+    + "".join(
+        f"AND has_table_privilege('identity_workspace.{table}', '{privilege}') "
+        for table in ("outbox", "users", "auth_challenges", "sessions", "auth_rate_limits")
+        for privilege in ("SELECT", "INSERT", "UPDATE")
+    ) +
     "FROM public.alembic_version"
 )
 

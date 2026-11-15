@@ -1,6 +1,7 @@
 """Validated environment configuration with credential-safe startup errors."""
 
 from pathlib import Path
+import re
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -28,11 +29,24 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     allowed_origins: tuple[str, ...] = ()
     database_url: SecretStr = Field(repr=False)
+    google_client_id: str | None = Field(default=None, repr=False)
+    google_timeout_seconds: float = Field(default=2.0, gt=0, le=5, allow_inf_nan=False)
+    auth_challenge_limit_per_minute: int = Field(default=10, ge=1, le=1000)
+    auth_exchange_limit_per_minute: int = Field(default=30, ge=1, le=1000)
     db_connect_timeout_seconds: int = Field(default=2, ge=2, le=30)
     db_pool_timeout_seconds: float = Field(default=2.0, gt=0, le=30, allow_inf_nan=False)
     db_statement_timeout_ms: int = Field(default=2000, ge=1, le=30000)
     db_pool_size: int = Field(default=5, ge=1, le=20)
     db_max_overflow: int = Field(default=0, ge=0, le=20)
+
+    @field_validator("google_client_id", mode="before")
+    @classmethod
+    def validate_google_client_id(cls, value):
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,256}\.apps\.googleusercontent\.com", value):
+            raise ValueError("Must be a Google OAuth web client ID.")
+        return value
 
     @field_validator("allowed_origins")
     @classmethod

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer-when-downgrade">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Identity sign-in verification</title>
+<style>
+  body { font: 16px system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; }
+  label { display: block; margin: 16px 0; }
+  input { display: block; box-sizing: border-box; padding: 10px; width: 100%; }
+  button { margin: 8px 8px 8px 0; padding: 10px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f2f4f6; padding: 16px; }
+</style>
+<h1>Local sign-in verification</h1>
+<p>Use your Google OAuth web client ID. Tokens stay in page memory and are never displayed. Reloading clears the application token.</p>
+<label>Google web client ID <input id="client" autocomplete="off" placeholder="Your complete client ID.apps.googleusercontent.com"></label>
+<label>Local API URL <input id="api" type="url" value="http://127.0.0.1:8000"></label>
+<button id="start">Create challenge</button>
+<button id="me" disabled>Check current user</button>
+<button id="logout" disabled>Log out of this application</button>
+<button id="reload">Reload for a fresh sign-in</button>
+<div id="google-button"></div>
+<p id="status" role="status">Configure Google and the service, then create a challenge.</p>
+<pre id="profile">No application session.</pre>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(() => {
+  const element = id => document.getElementById(id);
+  let accessToken = null;
+  let pendingChallenge = null;
+  let apiBase = null;
+  const status = message => { element("status").textContent = message; };
+  const sessionButtons = enabled => {
+    element("me").disabled = !enabled;
+    element("logout").disabled = !enabled;
+  };
+
+  async function call(path, { method = "GET", body } = {}) {
+    const headers = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    const response = await fetch(apiBase + path, {
+      method, headers, cache: "no-store", credentials: "omit",
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    if (!response.ok) {
+      let code = "REQUEST_FAILED";
+      try { code = (await response.json()).error?.code || code; } catch {}
+      throw new Error(`HTTP ${response.status}: ${code}`);
+    }
+    return response.status === 204 ? null : response.json();
+  }
+
+  async function showCurrentUser() {
+    element("profile").textContent = JSON.stringify(await call("/api/v1/me"), null, 2);
+    status("Current-user request succeeded. The application session is valid.");
+  }
+
+  async function handleGoogle(response) {
+    if (!pendingChallenge) return;
+    const challenge = pendingChallenge;
+    pendingChallenge = null;
+    try {
+      const session = await call("/api/v1/auth/google/exchange", {
+        method: "POST", body: { challenge_id: challenge.challenge_id, id_token: response.credential }
+      });
+      accessToken = session.access_token;
+      sessionButtons(true);
+      await showCurrentUser();
+    } catch (error) {
+      accessToken = null;
+      sessionButtons(false);
+      status(`${error.message}. Reload to create a new challenge; do not replay the exchange.`);
+    }
+  }
+
+  element("start").onclick = async () => {
+    if (!window.google?.accounts?.id) { status("Google's library is still loading or unavailable."); return; }
+    try {
+      const clientId = element("client").value.trim();
+      if (!clientId.endsWith(".apps.googleusercontent.com")) throw new Error("Enter the complete Google web client ID");
+      const api = new URL(element("api").value);
+      if (!["http:", "https:"].includes(api.protocol) || !["localhost", "127.0.0.1"].includes(api.hostname) || api.username || api.password || api.search || api.hash || api.pathname !== "/") {
+        throw new Error("Use a local API origin, such as http://127.0.0.1:8000");
+      }
+      apiBase = api.origin;
+      pendingChallenge = await call("/api/v1/auth/google/challenges", { method: "POST" });
+      google.accounts.id.initialize({ client_id: clientId, nonce: pendingChallenge.nonce, callback: handleGoogle, auto_select: false, ux_mode: "popup" });
+      google.accounts.id.renderButton(element("google-button"), { theme: "outline", size: "large" });
+      element("start").disabled = true;
+      status("Challenge created. Complete Google sign-in within five minutes.");
+    } catch (error) { status(error.message); }
+  };
+  element("me").onclick = () => showCurrentUser().catch(error => status(error.message));
+  element("logout").onclick = async () => {
+    try {
+      await call("/api/v1/auth/logout", { method: "POST" });
+      status("Application session revoked. Your Google account remains signed in.");
+    } catch (error) { status(`${error.message}. Local application token cleared.`); }
+    finally {
+      accessToken = null;
+      sessionButtons(false);
+      element("profile").textContent = "No application session.";
+      google.accounts.id.disableAutoSelect();
+    }
+  };
+  element("reload").onclick = () => window.location.reload();
+})();
+</script>
+</html>
