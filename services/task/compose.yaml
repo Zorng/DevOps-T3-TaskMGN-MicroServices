@@ -1,0 +1,34 @@
+name: task-service-local
+services:
+  db:
+    image: postgres:17.6
+    environment:
+      POSTGRES_DB: task_db
+      POSTGRES_USER: ${TASK_DB_USERNAME:-task_app}
+      POSTGRES_PASSWORD: ${TASK_DB_PASSWORD:?Set TASK_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - task-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  app:
+    build: .
+    profiles: [app]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TASK_DB_URL: jdbc:postgresql://db:5432/task_db?currentSchema=task_service
+      TASK_DB_USERNAME: ${TASK_DB_USERNAME:-task_app}
+      TASK_DB_PASSWORD: ${TASK_DB_PASSWORD:?Set TASK_DB_PASSWORD in .env}
+      IDENTITY_BASE_URL: ${TASK_CONTAINER_IDENTITY_BASE_URL:-http://host.docker.internal:8000}
+    ports:
+      - "127.0.0.1:8001:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+volumes:
+  task-db:

@@ -1,6 +1,6 @@
 # Infrastructure
 
-Status: deployment and local orchestration are not implemented. Backend hosting target: Oracle Cloud Always Free. Frontend hosting target: Netlify.
+Status: cloud deployment and shared application orchestration are not implemented. A Task-only development Compose setup exists in `services/task/compose.yaml`. Backend hosting target: Oracle Cloud Always Free. Frontend hosting target: Netlify.
 
 This directory holds shared deployment configuration, local orchestration, broker configuration, and centralized logging/metrics configuration. Application source and Dockerfiles remain in their respective component directories.
 

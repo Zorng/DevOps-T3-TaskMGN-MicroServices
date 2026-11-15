@@ -2,7 +2,7 @@
 
 A collaborative task management application built as independently deployable microservices in one repository. Services may use different languages and frameworks while sharing REST and event contracts.
 
-**Current state:** product specification, API contracts, and repository structure are available. The application services, gateway, frontend, and deployment configuration have not been implemented. Contract validation is runnable now.
+**Current state:** product specification, API contracts, and repository structure are available. The [Task service scaffold](services/task/README.md) uses Java/Spring Boot and PostgreSQL with health probes, migrations, tests, and CI. Business APIs, other services, gateway, frontend, and cloud deployment remain unimplemented.
 
 ## Repository layout
 
@@ -75,9 +75,9 @@ Implement each component in its own directory using the agreed contracts. Add ex
 
 Frontend requests go through the gateway. Backend services use REST for synchronous access checks and broker-delivered events for notifications and cleanup. Each service owns its data and publishes events through its own transactional outbox.
 
-The deployment targets are Oracle Cloud for backend infrastructure and Netlify for the frontend. Broker software, framework choices, and VM allocation remain undecided. There is no runnable Compose environment yet; orchestration will be added when component build/run commands are defined. See [infrastructure scope](infra/README.md).
+The deployment targets are Oracle Cloud for backend infrastructure and Netlify for the frontend. The Task stack is selected; broker software, the remaining component frameworks, and VM allocation are undecided. A Task-only local Compose setup is available in `services/task/`; full-application orchestration will follow the other components. See [infrastructure scope](infra/README.md).
 
-Service-specific build/test/image workflows will accompany their implementations. They should react to their component paths and relevant shared contracts; contract changes require affected integrations to be checked as well. The existing workflow validates contracts only, not service code or deployment.
+Service-specific build/test/image workflows will accompany their implementations. They should react to their component paths and relevant shared contracts; contract changes require affected integrations to be checked as well. The contract workflow validates shared contracts; the Task workflow runs service tests and builds its container. Image publishing and deployment remain future work.
 
 ## Testing requirements
 
@@ -85,4 +85,4 @@ Every implemented service endpoint must have dedicated unit tests for its handle
 
 Each service adds its unit-test and endpoint-test CI jobs with its implementation. Relevant tests must pass before merging or publishing/deploying images. Shared contract changes trigger affected service checks. See [the testing and CI policy](CONTRIBUTING.md#endpoint-tests-and-ci-requirements).
 
-Service test commands will follow the selected stacks. Currently only contract-validation CI is implemented; there are no service test suites yet.
+Task unit, endpoint, and PostgreSQL integration tests are available now; see [Task service commands](services/task/README.md#tests-and-ci). Other service test commands will follow their selected stacks.

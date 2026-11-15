@@ -29,7 +29,7 @@ Each backend service must supply documented, non-interactive unit-test and endpo
 
 Run checks for changed services; shared contract changes must also run affected service suites. Once those checks exist, configure required checks or a reliable aggregate gate so a skipped path-filtered job cannot silently bypass the required tests. Container publishing/deployment must depend on successful relevant test jobs. Required-check settings are configured separately in the hosting repository.
 
-Current state: only contract-validation CI exists because no backend stack or service implementation has been added. This requirement does not claim that service unit tests already run. Add real service checks alongside implementation rather than placeholder jobs that always pass.
+Current state: contract-validation CI and the Task scaffold’s unit, endpoint, and PostgreSQL integration checks exist. Other components must add real service checks alongside implementation rather than placeholder jobs that always pass.
 
 ## Component implementation requirements
 

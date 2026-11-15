@@ -1,0 +1,57 @@
+name: Task service
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task-service-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Task unit, endpoint, and database tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/task
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: services/task/pom.xml
+      - name: Run separate unit, endpoint, and integration suites
+        run: ./mvnw --batch-mode --no-transfer-progress verify -Pintegration
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-test-reports
+          path: |
+            services/task/target/surefire-reports/
+            services/task/target/endpoint-test-reports/
+            services/task/target/failsafe-reports/
+          if-no-files-found: warn
+
+  container:
+    name: Build Task container
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build independently from Task service context
+        run: docker build --tag task-service:ci services/task
