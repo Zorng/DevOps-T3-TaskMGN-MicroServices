@@ -1,0 +1,17 @@
+# Allow only the inputs needed to install the service and run its migrations.
+**
+!Dockerfile
+!.dockerignore
+!.python-version
+!pyproject.toml
+!uv.lock
+!alembic.ini
+!src/
+!src/**
+!migrations/
+!migrations/**
+!docs/
+!docs/environment-setup.md
+**/__pycache__/**
+**/*.pyc
+**/*.pyo

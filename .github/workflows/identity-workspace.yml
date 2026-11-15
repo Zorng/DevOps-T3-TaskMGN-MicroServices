@@ -1,0 +1,179 @@
+name: Identity and Workspace
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: identity-workspace-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tests:
+    name: Identity ${{ matrix.suite }} tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, request, integration]
+    defaults:
+      run:
+        shell: bash
+        working-directory: services/identity-workspace
+    env:
+      SUITE: ${{ matrix.suite }}
+      UV_CACHE_DIR: ${{ github.workspace }}/services/identity-workspace/.uv-cache
+      UV_PYTHON_DOWNLOADS: never
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up selected Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: services/identity-workspace/.python-version
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.13.8'
+          enable-cache: false
+      - name: Install locked development dependencies
+        run: |
+          uv sync --locked
+          uv pip check
+      - name: Verify Docker for real database tests
+        if: matrix.suite == 'integration'
+        run: |
+          docker version
+          docker compose version
+      - name: Run suite and verify nonempty passing report
+        run: |
+          uv run --locked pytest "tests/$SUITE" -q --junitxml="test-results/$SUITE.xml"
+          python scripts/verify_test_report.py "test-results/$SUITE.xml"
+      - name: Upload suite report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: identity-${{ matrix.suite }}-tests
+          path: services/identity-workspace/test-results/${{ matrix.suite }}.xml
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  container:
+    name: Identity container build and smoke
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: services/identity-workspace
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up selected Python for the smoke script
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: services/identity-workspace/.python-version
+      - name: Build the independent service image
+        run: |
+          docker build --tag identity-workspace:ci \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" .
+      - name: Smoke-test the built image
+        run: python scripts/smoke_container.py --skip-build --image identity-workspace:ci
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: identity-container-smoke
+          path: services/identity-workspace/test-results/container-smoke.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Save the tested image for main publishing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p "$RUNNER_TEMP/identity-image"
+          docker save identity-workspace:ci | gzip -n > "$RUNNER_TEMP/identity-image/identity-workspace.tar.gz"
+          cd "$RUNNER_TEMP/identity-image"
+          sha256sum identity-workspace.tar.gz > identity-workspace.tar.gz.sha256
+      - name: Upload the tested image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: identity-tested-image
+          path: ${{ runner.temp }}/identity-image/
+          if-no-files-found: error
+          overwrite: true
+          compression-level: 0
+          retention-days: 1
+
+  required:
+    name: Identity required checks
+    if: always()
+    needs: [tests, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require successful tests and container verification
+        shell: bash
+        env:
+          TEST_RESULT: ${{ needs.tests.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+        run: |
+          if [[ "$TEST_RESULT" != success || "$CONTAINER_RESULT" != success ]]; then
+            echo "::error::Identity tests and container verification must both succeed."
+            exit 1
+          fi
+          echo "Identity tests and container verification passed."
+
+  publish:
+    name: Publish verified Identity image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [required, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download the image that passed the smoke test
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: identity-tested-image
+          path: ${{ runner.temp }}/identity-image
+      - name: Verify and load the tested image
+        shell: bash
+        working-directory: ${{ runner.temp }}/identity-image
+        run: |
+          sha256sum --check identity-workspace.tar.gz.sha256
+          gunzip --stdout identity-workspace.tar.gz | docker load
+      - name: Authenticate to GitHub Container Registry
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Publish commit and main tags without rebuilding
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/identity-workspace"
+          docker tag identity-workspace:ci "$image:sha-$GITHUB_SHA"
+          docker tag identity-workspace:ci "$image:main"
+          docker push "$image:sha-$GITHUB_SHA"
+          docker push "$image:main"
+      - name: Clear registry authentication
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io

@@ -1,0 +1,78 @@
+name: identity-workspace-local
+
+x-identity-container: &identity-container
+  image: ${IDENTITY_IMAGE:-identity-workspace:local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  # Optional at model-load time so database-only commands need no app config.
+  # Starting the app without its generated configuration fails validation.
+  env_file:
+    - path: ${IDENTITY_CONTAINER_ENV_FILE:-./.env.container}
+      required: false
+  init: true
+  stop_grace_period: 20s
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  identity:
+    <<: *identity-container
+    profiles: ["app"]
+    ports:
+      - "127.0.0.1:${IDENTITY_HTTP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    <<: *identity-container
+    profiles: ["app"]
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  db:
+    image: postgres:18.7@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
+    entrypoint: ["/bin/sh", "/usr/local/bin/identity-entrypoint.sh"]
+    command: ["postgres"]
+    environment:
+      POSTGRES_DB: identity_db
+      POSTGRES_USER: identity_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_owner_password
+      IDENTITY_APP_PASSWORD_FILE: /run/secrets/database_app_password
+    secrets:
+      - database_owner_password
+      - database_app_password
+    ports:
+      - "127.0.0.1:${IDENTITY_DB_PORT:-5434}:5432"
+    volumes:
+      - identity-db:/var/lib/postgresql
+      - ./docker/entrypoint.sh:/usr/local/bin/identity-entrypoint.sh:ro
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/10-identity.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity_owner -d identity_db"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+secrets:
+  database_owner_password:
+    file: ${IDENTITY_DB_SECRETS_DIR:-./.secrets}/database-owner-password
+  database_app_password:
+    file: ${IDENTITY_DB_SECRETS_DIR:-./.secrets}/database-app-password
+
+volumes:
+  identity-db:
