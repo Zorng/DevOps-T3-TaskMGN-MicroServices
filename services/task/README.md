@@ -1,6 +1,6 @@
 # Task Service
 
-Java/Spring Boot scaffold for the Task work area. Implemented: application configuration, service-owned migration namespace, health probes, request correlation, JSON logs, metrics endpoint, local PostgreSQL setup, tests, and CI. Boards, tasks, authorization, comments, outbox publication, and cleanup remain subsequent features; no domain API is implemented yet.
+Java/Spring Boot scaffold for the Task work area. Implemented: application configuration, service-owned migration namespace, health probes, request correlation, JSON logs, metrics endpoint, local PostgreSQL setup, tests, and CI. Workspace authorization infrastructure is implemented; boards, tasks, comments, outbox publication, and cleanup remain subsequent features; no domain API is implemented yet.
 
 ## Stack
 
@@ -30,7 +30,7 @@ The service will own boards, tasks, assignments, comments, mentions, board limit
 - [Event contracts](../../api_contracts/events/README.md)
 - [Acceptance scenarios](../../api_contracts/acceptance-scenarios.md)
 
-No contracts were changed by the scaffold. Readiness calls Identity's private operational `/health/ready`; it is not the per-request authorization check. The authorization client and business endpoints are future work. The readiness probe carries no user/session credentials and never performs a real login.
+No contracts were changed by the scaffold. Readiness calls Identity's private operational `/health/ready`; it is not the per-request authorization check. The per-request workspace access client and reusable guard are implemented; business endpoints are future work. The readiness probe carries no user/session credentials and never performs a real login.
 
 ## Run locally
 
@@ -91,6 +91,7 @@ The script requires `.env`, stops and removes the stack containers and network, 
 | `TASK_DB_USERNAME` | `task_app` |
 | `TASK_DB_PASSWORD` | Required; no application default |
 | `IDENTITY_BASE_URL` | `http://localhost:8000`; HTTP(S) origin, no path, credentials, query, or fragment |
+| `TASK_IDENTITY_SERVICE_KEY` | Task-specific Identity service credential; unset by default. Protected requests return 503 until configured |
 | `SERVER_PORT` | `8001` |
 | `TASK_CONTAINER_IDENTITY_BASE_URL` | Compose app only: `http://host.docker.internal:8000` |
 
@@ -99,6 +100,14 @@ Local Compose provisions credentials from `.env`; changing a password in `.env` 
 Flyway creates the private `task_service` schema and records applied versions. `V1__initialize_task_schema.sql` establishes the namespace only; domain tables belong to their feature migrations. Add new versioned SQL files in `src/main/resources/db/migration/`; do not edit migrations already deployed. No tables in another service's database are accessed.
 
 Logs use Spring's ECS JSON format with the application name; `request_id` is attached to the logging context during HTTP requests. Responses include `X-Request-ID` and `Cache-Control: no-store`. The private `/actuator/prometheus` endpoint exports JVM/application/HTTP metrics. Keep both health probes and metrics off the public gateway as required by the routing contract. Domain-specific outbox metrics will follow that implementation.
+
+## Workspace authorization
+
+Future workspace-scoped handlers must declare `@RequireWorkspaceAccess` and include a `workspace_id` path variable; set `owner = true` for owner-only operations. Inject `WorkspaceAccess` into the handler to use the verified actor, workspace version, members and membership IDs. The annotation is opt-in, so each new protected route must include request-level tests proving the guard runs before mutation. Apply local resource nesting and tombstone checks as domain features are added.
+
+Each request checks Identity using the original bearer and Task's configured service key, forwarding the request ID. No positive result is cached. Checks use a two-second timeout per attempt with at most one retry for transport failures or Identity 503. Invalid/revoked user sessions return 401, inaccessible workspaces 404, and owner denial 403. An absent or rejected service key, invalid snapshot, or unavailable Identity returns 503 with `Retry-After`; no mutation may proceed. Health endpoints remain independent of the service key.
+
+When Identity implements the private access endpoint, configure `IDENTITY_BASE_URL` and `TASK_IDENTITY_SERVICE_KEY` with the real Task-specific secret on a private network (TLS when crossing hosts). With a valid user bearer and workspace UUID, invoke a future protected Task route and verify membership succeeds, owner-only access denies a member, and revoked sessions and removed/deleted workspaces fail. Stop Identity or use an invalid service key and verify 503 and no mutation. Never put credentials in URLs, logs, committed files, or test fixtures. There is currently no production Task business route for this live check; the automated tests use test-only controllers and a local Identity stub.
 
 ## Tests and CI
 
@@ -112,7 +121,7 @@ Logs use Spring's ECS JSON format with the application name; `request_id` is att
 
 Unit and endpoint suites are separate Surefire executions, each configured to fail when empty. The integration profile uses Failsafe with the same empty-suite protection. It creates an ephemeral PostgreSQL container and an in-process Identity HTTP test double; it does not use a local development database or live Identity/Google credentials. Docker unavailability fails integration tests rather than silently skipping them.
 
-Coverage includes liveness independence, ready/unavailable responses, database and Identity failures, correlation headers, bounded health probes, unsupported health methods, and real Flyway migration/restart-safe execution. Reports are under `target/surefire-reports/`, `target/endpoint-test-reports/`, and `target/failsafe-reports/`.
+Coverage includes credential forwarding, validated access snapshots, no caching, authorization and dependency failures that prevent mutations, liveness independence, ready/unavailable responses, database and Identity failures, correlation headers, bounded health probes, unsupported health methods, and real Flyway migration/restart-safe execution. Reports are under `target/surefire-reports/`, `target/endpoint-test-reports/`, and `target/failsafe-reports/`.
 
 [Task CI](../../.github/workflows/task-service.yml) runs all three suites on pull requests, pushes to `main`, and manual dispatch; it currently runs on every change, including contracts, to avoid skipped required checks. The container job requires successful tests. CI uploads reports and builds the image; it does not yet publish or deploy. Registry publication follows registry/deployment configuration and must remain gated by tests. Configure required GitHub checks separately; workflow files do not enforce branch protection themselves.
 
