@@ -8,6 +8,8 @@ The scaffold has separate unit, HTTP request, and real PostgreSQL integration su
 
 [Membership tests](membership-permissions.md#automated-verification) cover listing/search, owner removal and non-owner leave at every role boundary. Real PostgreSQL tests verify literal display-name search without email exposure, capacity/revocation races, rollback, immutable generations, rejoin, snapshot schema and invitation/join transaction sharing. Docker smoke also exercises all three endpoints and verifies the exact removed/left generations in pending outbox events. No public join/test-auth bypass is added.
 
+[Invitation tests](registered-user-invitations.md#automated-verification) cover all six endpoints, owner/recipient visibility, registered-user lookup, ambiguous identities, normalized idempotency, duplicate creation, authenticated pagination, terminal actions and capacity races. Real acceptances reuse the membership primitives and are tested for rollback, accepted-after-leave replay and deletion cancellation/invisibility. Docker smoke now joins/rejoins through real invitation HTTP endpoints, and checks invitation aggregate ID/version as well as terminal membership aggregate conventions.
+
 ## Prerequisites
 
 Complete [environment setup](environment-setup.md) to install Python 3.13.16, uv 0.13.8, and the locked development dependencies. Run commands from `services/identity-workspace/`.

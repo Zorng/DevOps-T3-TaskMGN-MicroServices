@@ -24,6 +24,9 @@ from identity_workspace.observability import Observability, router as metrics_ro
 from identity_workspace.memberships.routes import router as membership_router
 from identity_workspace.memberships.service import MembershipService
 from identity_workspace.memberships.store import MembershipStore
+from identity_workspace.invitations.routes import router as invitation_router
+from identity_workspace.invitations.service import InvitationService
+from identity_workspace.invitations.store import InvitationStore
 from identity_workspace.workspaces.routes import router as workspace_router
 from identity_workspace.workspaces.service import WorkspaceService
 from identity_workspace.workspaces.store import WorkspaceStore
@@ -42,6 +45,7 @@ def create_app(
     auth_store_factory=AuthStore,
     workspace_store_factory=WorkspaceStore,
     membership_store_factory=MembershipStore,
+    invitation_store_factory=InvitationStore,
 ) -> FastAPI:
     app_settings = settings if settings is not None else load_settings()
 
@@ -55,6 +59,7 @@ def create_app(
             app.state.auth = AuthService(auth_store_factory(database), verifier, app_settings)
             app.state.workspaces = WorkspaceService(workspace_store_factory(database))
             app.state.memberships = MembershipService(membership_store_factory(database))
+            app.state.invitations = InvitationService(invitation_store_factory(database))
         except Exception:
             for resource in (verifier, database):
                 if resource is not None:
@@ -65,6 +70,7 @@ def create_app(
             app.state.auth = None
             app.state.workspaces = None
             app.state.memberships = None
+            app.state.invitations = None
             app.state.observability.log.event(logging.ERROR, "application_startup_failed", error_category="startup_failed")
             app.state.observability.close()
             startup_failed = True
@@ -88,6 +94,7 @@ def create_app(
                 app.state.auth = None
                 app.state.workspaces = None
                 app.state.memberships = None
+                app.state.invitations = None
                 app.state.database = None
                 app.state.observability.log.event(logging.INFO, "application_stopped")
                 app.state.observability.close()
@@ -107,6 +114,7 @@ def create_app(
     app.state.auth = None
     app.state.workspaces = None
     app.state.memberships = None
+    app.state.invitations = None
     app.router.redirect_slashes = False
     app.add_exception_handler(APIError, api_error_handler)
     app.add_exception_handler(HTTPException, http_error_handler)
@@ -116,6 +124,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(workspace_router)
     app.include_router(membership_router)
+    app.include_router(invitation_router)
 
     def route_names():
         return {

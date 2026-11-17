@@ -97,11 +97,12 @@ def test_event_preserves_exact_generation_reason_and_correlation_without_credent
     request_id, workspace_id = str(uuid4()), uuid4()
     context = request_id_context.set(request_id)
     try:
-        event = removal_event(workspace_id, 3, generation, actor, reason, datetime.now(timezone.utc))
+        event = removal_event(workspace_id, generation, actor, reason, datetime.now(timezone.utc))
     finally:
         request_id_context.reset(context)
     event_contract(event)
-    assert event["request_id"] == request_id and event["aggregate_version"] == 3
+    assert event["request_id"] == request_id and event["aggregate_version"] == 2
+    assert event["aggregate_id"] == str(generation["id"])
     assert event["data"]["membership_id"] == str(generation["id"])
     assert event["data"]["user_id"] == str(generation["user_id"])
     assert event["data"]["reason"] == reason
@@ -110,7 +111,7 @@ def test_event_preserves_exact_generation_reason_and_correlation_without_credent
 
 def test_event_rejects_unknown_reason():
     with pytest.raises(ValueError):
-        removal_event(uuid4(), 2, {}, {}, "other", datetime.now(timezone.utc))
+        removal_event(uuid4(), {}, {}, "other", datetime.now(timezone.utc))
 
 
 def test_uninitialized_route_returns_dependency_error():

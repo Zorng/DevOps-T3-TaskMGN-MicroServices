@@ -111,3 +111,24 @@ def membership_dependencies(settings):
     }
     return SimpleNamespace(settings=settings, store=store, workspace_id=workspace_id,
                            owner_id=owner_id, user_id=user_id, generation_id=generation_id, member=member)
+
+
+@pytest.fixture
+def invitation_dependencies(settings):
+    from identity_workspace.invitations.store import InvitationStore
+
+    settings = settings.model_copy(update={"allowed_origins": ("http://localhost:5173",)})
+    identifier, workspace_id, owner_id, recipient_id = uuid4(), uuid4(), uuid4(), uuid4()
+    body = {
+        "id": str(identifier), "workspace_id": str(workspace_id), "workspace_name": "Example Workspace",
+        "inviter": {"id": str(owner_id), "display_name": "Example Owner"},
+        "recipient": {"id": str(recipient_id), "display_name": "Example Recipient"},
+        "status": "pending", "created_at": "2026-11-17T00:00:00.000Z", "updated_at": "2026-11-17T00:00:00.000Z",
+    }
+    store = Mock(spec=InvitationStore)
+    store.create.return_value = store.read.return_value = body
+    store.list_owned.return_value = store.list_received.return_value = {"items": [body], "next_cursor": None}
+    store.respond.return_value = {**body, "status": "accepted"}
+    store.cancel.return_value = {**body, "status": "cancelled"}
+    return SimpleNamespace(settings=settings, store=store, identifier=identifier, workspace_id=workspace_id,
+                           owner_id=owner_id, recipient_id=recipient_id, body=body, key=uuid4())

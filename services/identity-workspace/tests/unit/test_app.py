@@ -101,3 +101,16 @@ def test_membership_services_are_app_scoped_and_cleared_after_shutdown(settings)
     with TestClient(first), TestClient(second):
         assert first.state.memberships is not second.state.memberships
     assert first.state.memberships is second.state.memberships is None
+
+
+def test_invitation_initialization_failure_closes_resources_and_clears_services(settings):
+    database, verifier = Mock(), Mock()
+    app = create_app(settings, database_factory=Mock(return_value=database),
+                     google_verifier_factory=Mock(return_value=verifier),
+                     invitation_store_factory=Mock(side_effect=RuntimeError("synthetic-private-startup-error")))
+    with pytest.raises(RuntimeError, match="Identity application startup failed"):
+        with TestClient(app):
+            pytest.fail("Startup must not succeed.")
+    database.close.assert_called_once()
+    verifier.close.assert_called_once()
+    assert app.state.invitations is app.state.memberships is app.state.workspaces is app.state.auth is app.state.database is None

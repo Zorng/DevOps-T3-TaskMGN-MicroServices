@@ -4,7 +4,7 @@ from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 SCHEMA = "identity_workspace"
-SCHEMA_REVISION = "0004_membership_generations"
+SCHEMA_REVISION = "0005_registered_invitations"
 metadata = MetaData(schema=SCHEMA)
 
 outbox = Table(
@@ -149,7 +149,7 @@ idempotency_records = Table(
     Column("resource_id", UUID(as_uuid=True), nullable=False),
     Column("status_code", Integer, nullable=False),
     Column("response_body", JSONB, nullable=False),
-    Column("etag", Text, nullable=False),
+    Column("etag", Text),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=False),
     CheckConstraint("octet_length(fingerprint) = 32", name="idempotency_fingerprint"),
@@ -170,3 +170,18 @@ workspace_cursors = Table(
     CheckConstraint("octet_length(token_hash) = 32", name="workspace_cursor_hash"),
 )
 Index("workspace_cursors_expiry", workspace_cursors.c.expires_at)
+
+invitation_cursors = Table(
+    "invitation_cursors", metadata,
+    Column("token_hash", LargeBinary, primary_key=True),
+    Column("actor_id", UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.users.id"), nullable=False),
+    Column("scope", Text, nullable=False),
+    Column("last_created_at", DateTime(timezone=True), nullable=False),
+    Column("last_id", UUID(as_uuid=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("octet_length(token_hash) = 32", name="invitation_cursor_hash"),
+)
+Index("invitation_cursors_expiry", invitation_cursors.c.expires_at)
+Index("invitations_workspace_order", invitations.c.workspace_id, invitations.c.created_at.desc(), invitations.c.id.desc())
+Index("invitations_recipient_order", invitations.c.recipient_id, invitations.c.created_at.desc(), invitations.c.id.desc())

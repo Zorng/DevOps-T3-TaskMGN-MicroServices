@@ -47,11 +47,11 @@ class MembershipStore:
 
     def _revoke(self, session, workspace, target, actor, reason):
         now = database_now(session)
-        version = bump_workspace(session, workspace, now)
+        bump_workspace(session, workspace, now)
         session.execute(update(memberships).where(
             memberships.c.id == target["id"], memberships.c.revoked_at.is_(None),
         ).values(revoked_at=now))
-        event = removal_event(workspace["id"], version, target, actor, reason, now)
+        event = removal_event(workspace["id"], target, actor, reason, now)
         session.execute(outbox.insert().values(
             event_id=UUID(event["id"]), event_type=event["type"], payload=event,
             created_at=now, next_attempt_at=now,

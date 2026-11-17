@@ -1,6 +1,6 @@
 # Identity & Workspace Service
 
-Status: FastAPI foundation, Google sign-in/application sessions, workspace management, and member listing/search, owner removal and non-owner leave are implemented. Workspace and membership revocations persist real transactional lifecycle events. Invitation APIs, private authorization endpoints and broker delivery remain follow-up tasks; see [membership integration](docs/membership-permissions.md#removal-event-and-integration-handoff) and the [workspace integration handoff](docs/workspace-management.md#integration-handoff).
+Status: FastAPI foundation, Google sign-in/application sessions, workspace management, membership permissions and registered-user invitations are implemented. Invitation creation and workspace/membership revocations persist real transactional lifecycle events. Private authorization endpoints, broker delivery and consumer integration remain follow-up tasks; see [invitations](docs/registered-user-invitations.md) and the lifecycle integration handoffs.
 
 Runtime: Python 3.13.16, FastAPI 0.163.0, PostgreSQL 18.7, SQLAlchemy 2, Psycopg 3, Alembic, and uv 0.13.8. Exact dependencies are locked in [uv.lock](uv.lock); see [stack decisions](docs/stack-decisions.md).
 
@@ -36,7 +36,7 @@ if ($LASTEXITCODE -ne 0) { throw "Container startup failed." }
 curl.exe -i http://127.0.0.1:8000/health/ready
 ```
 
-Expected readiness: 200 after migration `0004_membership_generations`. With no client ID configured, health can still run, while Google challenge/exchange return 503. Configure a real web client ID to perform browser sign-in. Rebuild the image and rerun the startup command when upgrading an older local container; migrations run before the new application starts.
+Expected readiness: 200 after migration `0005_registered_invitations`. With no client ID configured, health can still run, while Google challenge/exchange return 503. Configure a real web client ID to perform browser sign-in. Rebuild the image and rerun the startup command when upgrading an older local container; migrations run before the new application starts.
 
 Follow [Google configuration, browser verification, and secret-safe troubleshooting](docs/google-signin.md). A local [browser verification tool](tools/google-signin.html) exercises challenge, exchange, current user, and logout while retaining tokens only in page memory. For host Python startup, see [application startup](docs/application-startup.md); for database ownership/migrations, see [database setup](docs/database-setup.md).
 
@@ -76,6 +76,21 @@ All operations require a live application session and current workspace membersh
 | `DELETE /api/v1/workspaces/{workspace_id}/membership` | Current non-owner leaves; 204, then 404 on repeat |
 
 Current non-owners attempting removal get 403. Owners cannot leave or be removed (409 `OWNER_CANNOT_LEAVE`). Member responses contain user ID/display name, role, immutable membership ID and join time; emails and provider identifiers are excluded. Removal/leave need no `If-Match` or idempotency key. A real revocation increments workspace version, preserves the old generation and atomically saves `workspace.member_removed.v1` with reason `removed` or `left`. Every rejoin creates a new generation. See [setup, examples, shared primitives and event integration](docs/membership-permissions.md).
+
+## Invitation endpoints
+
+Owners invite existing registered users by trimmed case-insensitive email. There is no separate user-directory endpoint. Pending invitations neither reserve capacity nor expire; acceptance enforces twenty active members including the owner.
+
+| Method/path | Behavior |
+| --- | --- |
+| `POST /api/v1/workspaces/{workspace_id}/invitations` | Current owner only; JSON `email` and UUID `Idempotency-Key`; 201 with invitation and atomic creation event |
+| `GET /api/v1/workspaces/{workspace_id}/invitations` | Current owner lists workspace invitation history |
+| `GET /api/v1/invitations` | Recipient lists their invitations from active workspaces |
+| `GET /api/v1/invitations/{invitation_id}` | Recipient or current owner reads an invitation |
+| `POST /api/v1/invitations/{invitation_id}/response` | Recipient accepts/declines via JSON `action`; 200, with state-based terminal retries |
+| `POST /api/v1/invitations/{invitation_id}/cancel` | Current owner cancels; bodyless, 200, with repeat cancellation allowed |
+
+Both lists support `status`, `limit` (default 20, maximum 100) and an authenticated opaque cursor, ordered `created_at DESC, id DESC`. Invitation responses contain ID/display-name summaries, never email addresses. No ETag/If-Match is used. Repeating an accepted invitation after leaving returns its accepted record and never rejoins the user; a new invitation is required. See [lookup errors, visibility/transition rules, examples, migration and verification](docs/registered-user-invitations.md).
 
 ## Test and CI commands
 

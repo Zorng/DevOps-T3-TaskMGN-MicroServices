@@ -188,7 +188,8 @@ def test_revocation_event_access_etag_and_repeat_semantics(member_http, operatio
         "actor": {"id": str(actor.id), "display_name": actor.display_name},
     }
     assert saved["payload"]["request_id"] == request_id
-    assert saved["payload"]["aggregate_version"] == after["version"]
+    assert saved["payload"]["aggregate_version"] == 2
+    assert saved["payload"]["aggregate_id"] == str(d.generation)
     assert client.get(paths(d).workspace, headers=d.member.headers).status_code == 404
     assert client.get(paths(d).list, headers=d.member.headers).status_code == 404
     assert client.get("/api/v1/workspaces", headers=d.member.headers).json()["items"] == []
