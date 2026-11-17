@@ -154,6 +154,8 @@ class ContractHTTPMiddleware:
                     raise APIError(413)
                 declared_length = int(length)
             origins = headers.getlist("origin")
+            if origins and scope["path"].startswith("/internal/"):
+                raise APIError(403, code="ORIGIN_NOT_ALLOWED", message="Browser origins cannot call private service routes.")
             if len(origins) > 1:
                 raise APIError(400)
             if origins:

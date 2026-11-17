@@ -37,6 +37,8 @@ Membership listing/search, owner removal and non-owner leave now run in that mat
 
 The matrix also covers all six [invitation endpoints](registered-user-invitations.md), including registered-only lookup, idempotency, terminal/capacity races and rollback. Container smoke uses the real invitation API to join/rejoin, tests accept/decline/cancel and their retries, then verifies pending cancellation on deletion. Invitation and membership event aggregate semantics are checked explicitly in addition to shared JSON Schema shape. The test matrix, report guards, image/required gate and main-only publishing rules remain unchanged.
 
+[Private Identity API checks](private-access-apis.md) now cover both endpoints, distinct per-service keys, caller allowlists and fresh session/workspace/membership reads. Consumer fixtures match the internal contract. Container smoke provisions temporary secret files and uses `compose.private.yaml` to verify direct private HTTP checks as UID 10001. Its report explicitly marks **public gateway isolation unverified**: no gateway is implemented yet. Unit tests validate the deployment verifier's fail-closed logic; they are not deployment evidence. Run that verifier against actual gateway/private origins when Gateway & Infrastructure supplies them. No placeholder job claims a passing deployment boundary.
+
 Each matrix entry runs the equivalent of these commands from the service directory, with `unit`, `request`, or `integration` as the suite:
 
 ```text
@@ -73,14 +75,14 @@ References: [GitHub Docker publishing](https://docs.github.com/en/actions/tutori
 
 ## Get the first hosted result
 
-Review the service changes and workflow, then commit/push the branch when ready. For the registered-user-invitations branch, from the repository root:
+Review the service changes, gateway/infrastructure handoff and workflow, then commit/push the branch when ready. For the private-access branch, from the repository root:
 
 ```powershell
-git add .github/workflows/identity-workspace.yml services/identity-workspace
+git add .github/workflows/identity-workspace.yml services/identity-workspace gateway/README.md infra/README.md
 git diff --cached --stat
 git diff --cached --name-only
-git commit -m "feat(identity-workspace): implement registered-user invitations"
-git push -u origin feat/identity-workspace/registered-user-invitations
+git commit -m "feat(identity-workspace): implement private identity and access APIs"
+git push -u origin feat/identity-workspace/private-access-apis
 ```
 
 Real environment files, password files, tools, caches, and reports remain ignored. Open a pull request from this branch into `main`; pushing this feature branch alone does not match the workflow's push trigger. In the PR checks or GitHub Actions tab, inspect **Identity and Workspace**, confirm the three test entries and container/aggregate checks succeed, and inspect their artifacts. Publishing should be skipped for the PR.

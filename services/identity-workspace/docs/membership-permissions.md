@@ -88,7 +88,7 @@ The caller supplies one `Database.transaction()` session and must let failures r
 
 Membership rows are retained after revocation, including their IDs and original join times. Rejoin inserts another row with a fresh UUID; it never restores an old row. Database triggers prohibit identity rewrites and reversed revocations. Active membership uniqueness and owner checks remain in the previous migration. Concurrency tests verify only one new generation can fill the twentieth slot. As with workspace mutations, the bounded maximum workspace version cannot overflow; an exhausted version causes a safe 503 and rollback.
 
-`MembershipStore.access_snapshot` additionally authenticates a hashed live session. The transaction-only snapshot primitive expects the caller to perform session/service authentication. These helpers do not expose private HTTP endpoints or configure service keys; that remains the private-access task.
+`MembershipStore.access_snapshot` additionally authenticates a hashed live session. The transaction-only snapshot primitive expects the caller to perform session/service authentication. The [private-access API](private-access-apis.md) now wraps these helpers with the Task service-key allowlist and the original bearer; Notification is limited to introspection.
 
 ## Removal event and integration handoff
 

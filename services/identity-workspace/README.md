@@ -1,6 +1,6 @@
 # Identity & Workspace Service
 
-Status: FastAPI foundation, Google sign-in/application sessions, workspace management, membership permissions and registered-user invitations are implemented. Invitation creation and workspace/membership revocations persist real transactional lifecycle events. Private authorization endpoints, broker delivery and consumer integration remain follow-up tasks; see [invitations](docs/registered-user-invitations.md) and the lifecycle integration handoffs.
+Status: FastAPI foundation, Google sign-in/application sessions, workspace management, membership permissions, registered-user invitations and private identity/access endpoints are implemented. Invitation creation and workspace/membership revocations persist real transactional lifecycle events. Broker delivery and consumer integration remain follow-up tasks. Public-gateway isolation awaits the gateway implementation; see [private API setup and deployment verification](docs/private-access-apis.md).
 
 Runtime: Python 3.13.16, FastAPI 0.163.0, PostgreSQL 18.7, SQLAlchemy 2, Psycopg 3, Alembic, and uv 0.13.8. Exact dependencies are locked in [uv.lock](uv.lock); see [stack decisions](docs/stack-decisions.md).
 
@@ -91,6 +91,28 @@ Owners invite existing registered users by trimmed case-insensitive email. There
 | `POST /api/v1/invitations/{invitation_id}/cancel` | Current owner cancels; bodyless, 200, with repeat cancellation allowed |
 
 Both lists support `status`, `limit` (default 20, maximum 100) and an authenticated opaque cursor, ordered `created_at DESC, id DESC`. Invitation responses contain ID/display-name summaries, never email addresses. No ETag/If-Match is used. Repeating an accepted invitation after leaving returns its accepted record and never rejoins the user; a new invitation is required. See [lookup errors, visibility/transition rules, examples, migration and verification](docs/registered-user-invitations.md).
+
+## Private Identity APIs
+
+These are service-to-service POSTs with no body/query. Both require the original application bearer and a distinct per-service `X-Service-Key`. Task may call both; Notification may introspect only. Responses are never cached, and every authorized call checks current database state. Identity assertion headers do not replace authentication.
+
+| Method/path | Task | Notification |
+| --- | --- | --- |
+| `POST /internal/v1/auth/introspect` | Live user ID/display name and session expiry | Same |
+| `POST /internal/v1/workspaces/{workspace_id}/access` | Active workspace version, actor role/generation and at most twenty current members | 403 |
+
+To enable local private calls, provision ignored keys and start with the optional secret-file overlay:
+
+```powershell
+& $identityUv run --locked python scripts/setup_service_keys.py
+if ($LASTEXITCODE -ne 0) { throw "Service-key setup failed." }
+docker compose -f compose.yaml -f compose.private.yaml --profile app build identity
+if ($LASTEXITCODE -ne 0) { throw "Image build failed." }
+docker compose -f compose.yaml -f compose.private.yaml --profile app up --detach --no-build --wait --wait-timeout 90 identity
+if ($LASTEXITCODE -ne 0) { throw "Private API startup failed." }
+```
+
+No new dependencies or migration are needed; head remains `0005_registered_invitations`. Existing public-only setup still works with private callers disabled until their keys are configured. See [secret configuration/rotation, consumer fixtures and deployment verification](docs/private-access-apis.md). **The gateway does not exist yet, so public-route isolation is an open acceptance check.** Local private API tests do not prove deployed gateway routing.
 
 ## Test and CI commands
 

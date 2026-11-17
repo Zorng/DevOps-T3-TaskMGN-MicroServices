@@ -1,0 +1,21 @@
+# Optional overlay: provision files first with scripts/setup_service_keys.py.
+# Keys are mounted only into Identity; each caller receives only its own key.
+services:
+  identity:
+    environment:
+      IDENTITY_TASK_SERVICE_KEY: ''
+      IDENTITY_NOTIFICATION_SERVICE_KEY: ''
+      IDENTITY_TASK_SERVICE_KEY_FILE: /run/secrets/identity_task_service_key
+      IDENTITY_NOTIFICATION_SERVICE_KEY_FILE: /run/secrets/identity_notification_service_key
+    secrets:
+      - identity_task_service_key
+      - identity_notification_service_key
+    networks:
+      default:
+        aliases: [identity-workspace]
+
+secrets:
+  identity_task_service_key:
+    file: ${IDENTITY_SERVICE_KEYS_DIR:-./.secrets}/task-service-key
+  identity_notification_service_key:
+    file: ${IDENTITY_SERVICE_KEYS_DIR:-./.secrets}/notification-service-key

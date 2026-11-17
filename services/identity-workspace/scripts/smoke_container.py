@@ -12,6 +12,7 @@ import urllib.request
 from uuid import UUID, uuid4
 
 from setup_local_db import main as setup_database
+from setup_service_keys import main as setup_service_keys
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -111,6 +112,7 @@ def registered_recipient_fixture(docker):
 def smoke(image, skip_build, report):
     report.parent.mkdir(parents=True, exist_ok=True)
     results = {"status": "running", "image": image, "checks": []}
+    results["public_gateway_boundary"] = "not_verified_requires_gateway_deployment"
 
     def record(message):
         results["checks"].append(message)
@@ -125,6 +127,7 @@ def smoke(image, skip_build, report):
             require(directory.is_relative_to(tools.resolve()), "Invalid temporary workspace.")
             (directory / ".env.example").write_bytes((SERVICE_ROOT / ".env.example").read_bytes())
             setup_database(directory)
+            setup_service_keys(directory)
             config = directory / ".env.container"
             config.write_text(
                 config.read_text(encoding="utf-8").replace("IDENTITY_LOG_LEVEL=INFO", "IDENTITY_LOG_LEVEL=DEBUG"),
@@ -140,17 +143,21 @@ def smoke(image, skip_build, report):
                 IDENTITY_IMAGE=image, IDENTITY_DB_PORT="0", IDENTITY_HTTP_PORT="0",
                 IDENTITY_CONTAINER_ENV_FILE=str(config),
                 IDENTITY_DB_SECRETS_DIR=str(directory / ".secrets"),
+                IDENTITY_SERVICE_KEYS_DIR=str(directory / ".secrets"),
                 COMPOSE_PROFILES="",
             )
             docker = Docker(environment, [
                 "compose", "--file", str(SERVICE_ROOT / "compose.yaml"),
+                "--file", str(SERVICE_ROOT / "compose.private.yaml"),
                 "--project-name", f"identity-smoke-{uuid4().hex[:12]}",
                 "--env-file", str(compose_env), "--profile", "app",
             ])
             docker.secrets = tuple(
                 (directory / ".secrets" / file).read_text(encoding="utf-8").strip()
-                for file in ["database-owner-password", "database-app-password"]
+                for file in ["database-owner-password", "database-app-password", "task-service-key", "notification-service-key"]
             )
+            task_key = (directory / ".secrets/task-service-key").read_text().strip()
+            notification_key = (directory / ".secrets/notification-service-key").read_text().strip()
             docker.compose("config", "--quiet")
             if not skip_build:
                 print("Building the locked service image...", flush=True)
@@ -167,6 +174,9 @@ def smoke(image, skip_build, report):
                 require(docker.run("inspect", "--format", "{{.State.ExitCode}}", migrate_id) == "0", "Migration did not succeed.")
                 docker.compose("run", "--rm", "--no-deps", "migrate")
                 record("Fresh migrations and repeated upgrade succeeded")
+                require(bool(docker.compose("exec", "--no-TTY", "identity", "python", "-c",
+                                            "import socket; print(socket.gethostbyname('identity-workspace'))")),
+                        "Private Identity DNS alias is unavailable.")
 
                 identity_id = docker.compose("ps", "--quiet", "identity")
                 require(docker.run("inspect", "--format", "{{.HostConfig.ReadonlyRootfs}}", identity_id) == "true", "Container root filesystem must be read-only.")
@@ -221,6 +231,17 @@ def smoke(image, skip_build, report):
                 ])))
                 docker.secrets = (*docker.secrets, actor["token"])
                 bearer = {"Authorization": "Bearer " + actor["token"]}
+                task_headers = {**bearer, "X-Service-Key": task_key}
+                notification_headers = {**bearer, "X-Service-Key": notification_key}
+                intro = "/internal/v1/auth/introspect"
+                for private_headers in (task_headers, notification_headers):
+                    _, identity = request(base_url, intro, 200, method="POST", headers=private_headers)
+                    identity = json.loads(identity)
+                    require(set(identity) == {"user", "session_expires_at"} and set(identity["user"]) == {"id", "display_name"}, "Private introspection includes extra fields.")
+                    require(identity["user"]["id"] == actor["user_id"], "Private introspection changed the original actor.")
+                request(base_url, intro, 401, method="POST", headers=bearer)
+                request(base_url, intro, 401, method="POST", headers={"X-Service-Key": task_key, "X-User-ID": actor["user_id"]})
+                request(base_url, intro, 401, method="POST", headers={**bearer, "X-Service-Key": "unknown-service-key"})
                 create_headers = {**bearer, "Idempotency-Key": str(uuid4())}
                 _, denied = request(base_url, "/api/v1/workspaces", 401)
                 require(json.loads(denied)["error"]["code"] == "AUTH_REQUIRED", "Workspace auth guard differs.")
@@ -231,6 +252,10 @@ def smoke(image, skip_build, report):
                 replay_headers, replay = request(base_url, "/api/v1/workspaces", 201, method="POST", body={"name": "Smoke Team"}, headers=create_headers)
                 require(json.loads(replay) == workspace and replay_headers["ETag"] == original_headers["ETag"], "Create retry changed the original response.")
                 target = "/api/v1/workspaces/" + workspace["id"]
+                private_access = "/internal/v1/workspaces/" + workspace["id"] + "/access"
+                _, owner_access = request(base_url, private_access, 200, method="POST", headers=task_headers)
+                require(json.loads(owner_access)["actor_role"] == "owner" and len(json.loads(owner_access)["members"]) == 1, "Private owner snapshot differs.")
+                request(base_url, private_access, 403, method="POST", headers={**notification_headers, "X-Service-Name": "task"})
                 _, listing = request(base_url, "/api/v1/workspaces?limit=1", 200, headers=bearer)
                 require(json.loads(listing) == {"items": [workspace], "next_cursor": None}, "Workspace list differs.")
                 _, read_back = request(base_url, target, 200, headers=bearer)
@@ -241,6 +266,10 @@ def smoke(image, skip_build, report):
                 require(json.loads(renamed)["version"] == 2 and renamed_headers["ETag"] == '"2"', "Rename version differs.")
                 member = registered_recipient_fixture(docker)
                 member_bearer = {"Authorization": "Bearer " + member["token"]}
+                member_task = {**member_bearer, "X-Service-Key": task_key}
+                member_notification = {**member_bearer, "X-Service-Key": notification_key}
+                request(base_url, intro, 200, method="POST", headers=member_notification)
+                request(base_url, private_access, 404, method="POST", headers=member_task)
                 invitation_ids = []
 
                 def invite_member():
@@ -270,6 +299,9 @@ def smoke(image, skip_build, report):
                 _, member_list = request(base_url, target + "/members", 200, headers=member_bearer)
                 listed = json.loads(member_list)["items"]
                 member["membership_id"] = next(item["membership_id"] for item in listed if item["user"]["id"] == member["user_id"])
+                _, member_access = request(base_url, private_access, 200, method="POST", headers={**member_task, "X-User-ID": actor["user_id"], "X-User-Role": "owner"})
+                member_access = json.loads(member_access)
+                require(member_access["actor_role"] == "member" and member_access["actor_membership_id"] == member["membership_id"], "Identity headers bypassed private membership verification.")
                 require(len(listed) == 2 and all(set(item["user"]) == {"id", "display_name"} for item in listed), "Member list includes private or incorrect data.")
                 require(any(item["membership_id"] == member["membership_id"] for item in listed), "Member generation is missing.")
                 _, searched = request(base_url, target + "/members?q=sMoKe%20mEmBeR", 200, headers=bearer)
@@ -283,6 +315,8 @@ def smoke(image, skip_build, report):
                     require(removed == "", "Removal must be bodyless.")
                 request(base_url, target + "/members", 404, headers=member_bearer)
                 request(base_url, target, 404, headers=member_bearer)
+                request(base_url, private_access, 404, method="POST", headers=member_task)
+                request(base_url, intro, 200, method="POST", headers=member_notification)
                 request(base_url, invitation_target + "/response", 200, method="POST", body={"action": "accept"}, headers=member_bearer)
                 request(base_url, target + "/members", 404, headers=member_bearer)
                 replacement_target = invite_member()
@@ -290,6 +324,8 @@ def smoke(image, skip_build, report):
                 _, replacement_members = request(base_url, target + "/members", 200, headers=member_bearer)
                 replacement = next(item for item in json.loads(replacement_members)["items"] if item["user"]["id"] == member["user_id"])
                 require(replacement["membership_id"] != member["membership_id"], "Rejoin reused a revoked generation.")
+                _, rejoined_access = request(base_url, private_access, 200, method="POST", headers=member_task)
+                require(json.loads(rejoined_access)["actor_membership_id"] == replacement["membership_id"], "Private access cached a removed generation.")
                 request(base_url, target + "/members", 200, headers=member_bearer)
                 _, left = request(base_url, target + "/membership", 204, method="DELETE", headers=member_bearer)
                 require(left == "", "Leave must be bodyless.")
@@ -321,6 +357,11 @@ def smoke(image, skip_build, report):
                 request(base_url, "/api/v1/workspaces", 404, method="POST", body={"name": "Smoke Team"}, headers=create_headers)
                 _, me = request(base_url, "/api/v1/me", 200, headers=bearer)
                 require(json.loads(me)["owned_workspace_count"] == 0, "Deletion did not release ownership quota.")
+                request(base_url, private_access, 404, method="POST", headers=task_headers)
+                request(base_url, intro, 200, method="POST", headers=notification_headers)
+                request(base_url, "/api/v1/auth/logout", 204, method="POST", headers=bearer)
+                request(base_url, intro, 401, method="POST", headers=task_headers)
+                record("Private API caller matrix, original bearer, current role/generations, revocation and read-only secret mounts verified directly")
                 lifecycle = json.loads(docker.compose("exec", "--no-TTY", "identity", "python", "-c", "\n".join([
                     "import json",
                     "from uuid import UUID",
@@ -354,9 +395,11 @@ def smoke(image, skip_build, report):
 
                 docker.compose("stop", "--timeout", "10", "db")
                 outage_metrics = health(base_url, 503)
+                request(base_url, intro, 503, method="POST", headers=member_notification)
                 record("Database outage: live/metrics remain 200 and ready becomes 503")
                 docker.compose("up", "--detach", "--wait", "--wait-timeout", "60", "db")
                 recovered_metrics = health(base_url, 200)
+                request(base_url, intro, 200, method="POST", headers=member_notification)
                 require(docker.compose("ps", "--quiet", "identity") == identity_id, "Application was unexpectedly recreated.")
                 record("Readiness recovers to 200 without restarting the application")
 

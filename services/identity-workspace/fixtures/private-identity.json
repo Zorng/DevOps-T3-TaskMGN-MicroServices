@@ -1,0 +1,202 @@
+{
+  "format_version": 1,
+  "notice": "Synthetic contract fixtures only; timestamps are examples, not live authorization. Inject caller keys and original user bearer separately.",
+  "cases": [
+    {
+      "name": "task-introspect",
+      "caller": "task",
+      "method": "POST",
+      "path_template": "/internal/v1/auth/introspect",
+      "user_scenario": "live",
+      "status": 200,
+      "response": {
+        "user": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "session_expires_at": "2026-11-14T18:00:00Z"
+      }
+    },
+    {
+      "name": "notification-introspect",
+      "caller": "notification",
+      "method": "POST",
+      "path_template": "/internal/v1/auth/introspect",
+      "user_scenario": "live",
+      "status": 200,
+      "response": {
+        "user": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "session_expires_at": "2026-11-14T18:00:00Z"
+      }
+    },
+    {
+      "name": "task-access",
+      "caller": "task",
+      "method": "POST",
+      "path_template": "/internal/v1/workspaces/{workspace_id}/access",
+      "user_scenario": "live-member",
+      "status": 200,
+      "response": {
+        "actor": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "workspace_version": 2,
+        "actor_membership_id": "00000000-0000-4000-8000-000000000009",
+        "actor_role": "owner",
+        "members": [
+          {
+            "membership_id": "00000000-0000-4000-8000-000000000009",
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "display_name": "Example Owner"
+            },
+            "role": "owner",
+            "joined_at": "2026-11-14T10:00:00Z"
+          },
+          {
+            "membership_id": "00000000-0000-4000-8000-000000000010",
+            "user": {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Dara"
+            },
+            "role": "member",
+            "joined_at": "2026-11-14T10:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "notification-access-denied",
+      "caller": "notification",
+      "method": "POST",
+      "path_template": "/internal/v1/workspaces/{workspace_id}/access",
+      "user_scenario": "live",
+      "status": 403,
+      "response": {
+        "error": {
+          "code": "FORBIDDEN",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    },
+    {
+      "name": "bad-service-key",
+      "caller": "invalid",
+      "method": "POST",
+      "path_template": "/internal/v1/auth/introspect",
+      "user_scenario": "live",
+      "status": 401,
+      "response": {
+        "error": {
+          "code": "SERVICE_CREDENTIAL_INVALID",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    },
+    {
+      "name": "missing-user-bearer",
+      "caller": "task",
+      "method": "POST",
+      "path_template": "/internal/v1/auth/introspect",
+      "user_scenario": "missing",
+      "status": 401,
+      "response": {
+        "error": {
+          "code": "AUTH_REQUIRED",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    },
+    {
+      "name": "expired-session",
+      "caller": "task",
+      "method": "POST",
+      "path_template": "/internal/v1/auth/introspect",
+      "user_scenario": "expired",
+      "status": 401,
+      "response": {
+        "error": {
+          "code": "SESSION_INVALID",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    },
+    {
+      "name": "revoked-session",
+      "caller": "notification",
+      "method": "POST",
+      "path_template": "/internal/v1/auth/introspect",
+      "user_scenario": "revoked",
+      "status": 401,
+      "response": {
+        "error": {
+          "code": "SESSION_INVALID",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    },
+    {
+      "name": "removed-member",
+      "caller": "task",
+      "method": "POST",
+      "path_template": "/internal/v1/workspaces/{workspace_id}/access",
+      "user_scenario": "removed-member",
+      "status": 404,
+      "response": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    },
+    {
+      "name": "deleted-workspace",
+      "caller": "task",
+      "method": "POST",
+      "path_template": "/internal/v1/workspaces/{workspace_id}/access",
+      "user_scenario": "live-member",
+      "status": 404,
+      "response": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    },
+    {
+      "name": "storage-outage",
+      "caller": "task",
+      "method": "POST",
+      "path_template": "/internal/v1/workspaces/{workspace_id}/access",
+      "user_scenario": "live-member",
+      "status": 503,
+      "response": {
+        "error": {
+          "code": "DEPENDENCY_UNAVAILABLE",
+          "message": "Synthetic contract error.",
+          "request_id": "00000000-0000-4000-8000-000000000012",
+          "details": []
+        }
+      }
+    }
+  ]
+}
