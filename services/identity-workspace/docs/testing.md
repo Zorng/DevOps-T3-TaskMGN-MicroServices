@@ -6,6 +6,8 @@ The scaffold has separate unit, HTTP request, and real PostgreSQL integration su
 
 [Workspace tests](workspace-management.md#automated-verification) cover all five workspace endpoints with unit/request suites and real PostgreSQL quota/retry/stale-write races, rollback, pagination, authorization and atomic deletion. Persisted invitation fixtures exercise cancellation until invitation endpoints are implemented. Responses and deletion events are validated against shared JSON Schemas. Container smoke now exercises the authenticated workspace lifecycle using a synthetic session in its disposable database, including the pending deletion outbox record.
 
+[Membership tests](membership-permissions.md#automated-verification) cover listing/search, owner removal and non-owner leave at every role boundary. Real PostgreSQL tests verify literal display-name search without email exposure, capacity/revocation races, rollback, immutable generations, rejoin, snapshot schema and invitation/join transaction sharing. Docker smoke also exercises all three endpoints and verifies the exact removed/left generations in pending outbox events. No public join/test-auth bypass is added.
+
 ## Prerequisites
 
 Complete [environment setup](environment-setup.md) to install Python 3.13.16, uv 0.13.8, and the locked development dependencies. Run commands from `services/identity-workspace/`.

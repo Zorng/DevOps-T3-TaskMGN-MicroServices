@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
+from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 from alembic import command
@@ -103,3 +105,27 @@ def database(postgres):
 @pytest.fixture
 def migrate(database):
     return lambda operation="upgrade", revision="head": run_migration(database, operation, revision)
+
+
+@pytest.fixture
+def registered_actor(database):
+    """Synthetic users/application sessions for feature integration; no Google HTTP."""
+    from identity_workspace.auth.service import token_hash
+    from identity_workspace.auth.store import database_now
+    from identity_workspace.persistence import sessions, users
+
+    def create(display_name="Fixture Member", email=None):
+        identifier, token = uuid4(), secrets.token_urlsafe(32)
+        with database.transaction() as session:
+            now = database_now(session)
+            session.execute(users.insert().values(
+                id=identifier, provider="google", provider_subject=str(uuid4()),
+                display_name=display_name, email=email or f"{identifier}@example.com", created_at=now,
+            ))
+            session.execute(sessions.insert().values(
+                id=uuid4(), user_id=identifier, token_hash=token_hash(token),
+                created_at=now, expires_at=now + timedelta(hours=8),
+            ))
+        return SimpleNamespace(id=identifier, token=token, display_name=display_name,
+                               headers={"Authorization": "Bearer " + token})
+    return create

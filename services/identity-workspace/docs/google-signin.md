@@ -17,7 +17,7 @@ Emails are not unique identity keys; distinct Google subjects with the same veri
 
 `POST /api/v1/auth/logout` atomically revokes only the presented active session and returns bodyless 204. Repeated logout returns 401. Other sessions and the Google account remain signed in. The frontend clears its in-memory token even when logout returns 401. There is no refresh endpoint or application session cookie. Reload/expiry requires a fresh sign-in.
 
-The first migration remains unchanged. `0002_google_sessions` adds users, challenges, sessions, and shared IP rate-limit buckets. Readiness expects the latest migration head and required table privileges; [workspace management](workspace-management.md) now adds `0003_workspace_management`. Database constraints enforce token-hash lengths, fixed lifetimes, provider-subject uniqueness, and the owned-workspace count bound. Failed user/session writes roll back challenge consumption.
+The first migration remains unchanged. `0002_google_sessions` adds users, challenges, sessions, and shared IP rate-limit buckets. Readiness expects the latest migration head and required table privileges; [workspace management](workspace-management.md) adds `0003_workspace_management`, followed by the [membership generation guard](membership-permissions.md) in `0004_membership_generations`. Database constraints enforce token-hash lengths, fixed lifetimes, provider-subject uniqueness, and the owned-workspace count bound. Failed user/session writes roll back challenge consumption.
 
 ## Google configuration
 

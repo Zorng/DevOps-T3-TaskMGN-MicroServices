@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) { throw "Container startup failed." }
 curl.exe -i http://127.0.0.1:8000/health/ready
 ```
 
-The migration container applies `0003_workspace_management` after the existing authentication migration. It preserves users, sessions, and pending outbox records. Host Python users instead run `uv run --locked alembic upgrade head` before starting the server. Readiness checks the current migration and required workspace storage privileges. A broker or Task outage does not block authoritative local deletion or readiness while the outbox can persist.
+The migration container applies `0003_workspace_management` after the existing authentication migration, followed by the [membership generation guard](membership-permissions.md) in `0004_membership_generations`. It preserves users, sessions, and pending outbox records. Host Python users instead run `uv run --locked alembic upgrade head` before starting the server. Readiness checks the current migration and required workspace storage privileges. A broker or Task outage does not block authoritative local deletion or readiness while the outbox can persist.
 
 ## HTTP examples
 
@@ -90,7 +90,7 @@ Names are 1–100 Unicode code points after surrounding whitespace is trimmed. B
 
 Creation locks the user's row with PostgreSQL `FOR NO KEY UPDATE`, counts active workspaces owned by that user, checks fewer than ten, then inserts the workspace, initial owner membership and retry record and synchronizes `/me`'s counter. One transaction commits all changes. Joined workspaces are counted only as memberships. The owner row serializes simultaneous creates/deletes across application processes; an in-memory lock is not involved. A bounded create lock wait returns 409 `IDEMPOTENCY_IN_PROGRESS` with `Retry-After: 1` for a safe same-key retry. A quota/business rejection or rollback consumes no key.
 
-Workspace writers consistently lock **actor user → workspace → membership/invitation children → outbox**. Owner mutations check current visibility and role before preconditions. Future member/invitation endpoints must lock the active workspace before changing child rows; parent-check triggers block active membership/invitation writes to a deleted workspace and serialize parent deletion against inserts. Membership joins/removals must increment workspace version and enforce the 20-member quota in their own task.
+Workspace writers consistently lock **actor user → workspace → membership/invitation children → outbox**. Owner mutations check current visibility and role before preconditions. Member/invitation endpoints must lock the active workspace before changing child rows; parent-check triggers block active membership/invitation writes to a deleted workspace and serialize parent deletion against inserts. The [membership implementation](membership-permissions.md#transactions-generations-and-shared-primitives) now provides versioned joins/removals, the 20-member quota and shared helpers for invitation acceptance.
 
 Cursor tokens contain 256 random bits; only their SHA-256 hashes are stored. Lookup authenticates the cursor and binds it to its actor, endpoint, ordering and last tuple. A forged, expired or wrong-user token receives 400 `INVALID_CURSOR`. Cursor lifetime is 25 hours and can span changing page limits; this is server-side cursor storage, with no signing secret to configure.
 

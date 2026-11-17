@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select, text, tuple_, update
 from identity_workspace.auth.service import token_hash
 from identity_workspace.auth.store import database_now, session_actor
 from identity_workspace.errors import APIError
+from identity_workspace.memberships.primitives import initialize_owner
 from identity_workspace.persistence import (
     idempotency_records, invitations, memberships, outbox, users, workspace_cursors, workspaces,
 )
@@ -99,9 +100,7 @@ class WorkspaceStore:
                 id=identifier, name=name, owner_id=actor["id"], version=1,
                 created_at=now, updated_at=now,
             ))
-            session.execute(memberships.insert().values(
-                id=uuid4(), workspace_id=identifier, user_id=actor["id"], role="owner", joined_at=now,
-            ))
+            initialize_owner(session, identifier, actor["id"], now)
             sync_quota(session, actor["id"])
             body = public_workspace(visible(session, actor["id"], identifier))
             saved_at = database_now(session)

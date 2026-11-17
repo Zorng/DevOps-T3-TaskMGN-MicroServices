@@ -90,3 +90,24 @@ def workspace_dependencies(settings):
     store.list.return_value = {"items": [body], "next_cursor": None}
     store.delete.return_value = None
     return SimpleNamespace(settings=settings, store=store, identifier=identifier, actor=actor, body=body, key=uuid4())
+
+
+@pytest.fixture
+def membership_dependencies(settings):
+    from identity_workspace.memberships.store import MembershipStore
+
+    settings = settings.model_copy(update={"allowed_origins": ("http://localhost:5173",)})
+    workspace_id, owner_id, user_id, generation_id = uuid4(), uuid4(), uuid4(), uuid4()
+    member = {
+        "membership_id": str(generation_id), "user": {"id": str(user_id), "display_name": "Example Member"},
+        "role": "member", "joined_at": "2026-11-17T00:00:00.000Z",
+    }
+    store = Mock(spec=MembershipStore)
+    store.list.return_value = {"items": [member]}
+    store.remove.return_value = store.leave.return_value = None
+    store.access_snapshot.return_value = {
+        "actor": member["user"], "workspace_id": str(workspace_id), "workspace_version": 2,
+        "actor_membership_id": str(generation_id), "actor_role": "member", "members": [member],
+    }
+    return SimpleNamespace(settings=settings, store=store, workspace_id=workspace_id,
+                           owner_id=owner_id, user_id=user_id, generation_id=generation_id, member=member)
