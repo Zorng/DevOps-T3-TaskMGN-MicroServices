@@ -18,7 +18,7 @@ Liveness performs no database, broker, Google, or other network checks. It runs 
 
 Readiness uses the existing SQLAlchemy pool in a worker thread. A fresh query verifies:
 
-- Exactly one migration revision, matching `SCHEMA_REVISION` in `persistence.py` (currently `0003_workspace_management`).
+- Exactly one migration revision, matching `SCHEMA_REVISION` in `persistence.py` (currently `0004_membership_generations`).
 - A read-write connection to the primary database, rather than recovery/read-only mode.
 - The migrated outbox, authentication, workspace, membership, invitation, idempotency and cursor tables exist and the application role has SELECT, INSERT, and UPDATE privileges on them.
 

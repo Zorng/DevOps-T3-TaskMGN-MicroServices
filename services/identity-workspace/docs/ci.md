@@ -33,6 +33,8 @@ Google sign-in/session tests inject verifier or key-transport doubles, and pytes
 
 Workspace tests run in the same required matrix, including real PostgreSQL quota/retry races and atomic deletion with persisted invitation fixtures. The locked dev-only JSON Schema validator checks responses/events against `api_contracts/`. Container smoke exercises all five workspace endpoints with a synthetic session seeded solely in its disposable database, checks retry/precondition behavior and verifies a pending deletion outbox event without a broker. See [workspace verification and the cross-task closure requirement](workspace-management.md#integration-handoff).
 
+Membership listing/search, owner removal and non-owner leave now run in that matrix too. Integration tests cover immutable membership generations, role boundaries, rollback and capacity/removal races; container smoke verifies remove/rejoin/leave and persisted reason/generation-specific events. The [membership handoff](membership-permissions.md#removal-event-and-integration-handoff) distinguishes this transactional producer from the separate lifecycle publisher/Task cleanup integration. No real provider/broker credentials are needed by CI.
+
 Each matrix entry runs the equivalent of these commands from the service directory, with `unit`, `request`, or `integration` as the suite:
 
 ```text
@@ -69,14 +71,14 @@ References: [GitHub Docker publishing](https://docs.github.com/en/actions/tutori
 
 ## Get the first hosted result
 
-Review the service changes and workflow, then commit/push the branch when ready. For the workspace-management branch, from the repository root:
+Review the service changes and workflow, then commit/push the branch when ready. For the membership-permissions branch, from the repository root:
 
 ```powershell
 git add .github/workflows/identity-workspace.yml services/identity-workspace
 git diff --cached --stat
 git diff --cached --name-only
-git commit -m "feat(identity-workspace): implement workspace management and ownership limit"
-git push -u origin feat/identity-workspace/workspace-management
+git commit -m "feat(identity-workspace): implement membership and owner permissions"
+git push -u origin feat/identity-workspace/membership-permissions
 ```
 
 Real environment files, password files, tools, caches, and reports remain ignored. Open a pull request from this branch into `main`; pushing this feature branch alone does not match the workflow's push trigger. In the PR checks or GitHub Actions tab, inspect **Identity and Workspace**, confirm the three test entries and container/aggregate checks succeed, and inspect their artifacts. Publishing should be skipped for the PR.

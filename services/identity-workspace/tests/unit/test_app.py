@@ -81,3 +81,23 @@ def test_provider_cleanup_failure_still_disposes_database(settings):
             pass
     database.close.assert_called_once()
     assert app.state.auth is None and app.state.database is None
+
+
+def test_membership_initialization_failure_clears_services_and_closes_resources(settings):
+    database, verifier = Mock(), Mock()
+    app = create_app(settings, database_factory=Mock(return_value=database),
+                     google_verifier_factory=Mock(return_value=verifier),
+                     membership_store_factory=Mock(side_effect=RuntimeError("synthetic-private-startup-error")))
+    with pytest.raises(RuntimeError, match="Identity application startup failed"):
+        with TestClient(app):
+            pytest.fail("Startup must not succeed.")
+    database.close.assert_called_once()
+    verifier.close.assert_called_once()
+    assert app.state.auth is app.state.workspaces is app.state.memberships is app.state.database is None
+
+
+def test_membership_services_are_app_scoped_and_cleared_after_shutdown(settings):
+    first, second = create_app(settings, database_factory=Mock()), create_app(settings, database_factory=Mock())
+    with TestClient(first), TestClient(second):
+        assert first.state.memberships is not second.state.memberships
+    assert first.state.memberships is second.state.memberships is None

@@ -7,6 +7,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 ROOT = Path(__file__).resolve().parents[3] / "api_contracts"
 PUBLIC = json.loads((ROOT / "openapi/identity-workspace.openapi.json").read_text(encoding="utf-8"))
 EVENTS = json.loads((ROOT / "events/event.schema.json").read_text(encoding="utf-8"))
+PRIVATE = json.loads((ROOT / "openapi/identity-internal.openapi.json").read_text(encoding="utf-8"))
 
 
 def public_contract(value, name):
@@ -16,3 +17,8 @@ def public_contract(value, name):
 
 def event_contract(value):
     Draft202012Validator(EVENTS, format_checker=FormatChecker()).validate(value)
+
+
+def private_contract(value, name):
+    schema = {"$ref": f"#/components/schemas/{name}", "components": PRIVATE["components"]}
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(value)

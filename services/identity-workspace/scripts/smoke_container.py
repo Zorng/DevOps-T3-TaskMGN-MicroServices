@@ -84,6 +84,36 @@ def health(base_url, readiness):
     return metrics
 
 
+def membership_fixture(docker, workspace_id, user_id=None):
+    """Seed/join only this disposable smoke DB, with a fresh generation on rejoin."""
+    result = json.loads(docker.compose("exec", "--no-TTY", "identity", "python", "-c", "\n".join([
+        "import json, secrets, sys",
+        "from datetime import timedelta",
+        "from uuid import UUID, uuid4",
+        "from identity_workspace.config import load_settings",
+        "from identity_workspace.database import create_database",
+        "from identity_workspace.auth.service import token_hash",
+        "from identity_workspace.auth.store import database_now",
+        "from identity_workspace.memberships.primitives import join_member",
+        "from identity_workspace.persistence import users, sessions",
+        "db = create_database(load_settings())",
+        "workspace_id = UUID(sys.argv[1])",
+        "identifier = UUID(sys.argv[2]) if sys.argv[2] else uuid4()",
+        "token = None if sys.argv[2] else secrets.token_urlsafe(32)",
+        "with db.transaction() as s:",
+        " now = database_now(s)",
+        " if token is not None:",
+        "  s.execute(users.insert().values(id=identifier, provider='google', provider_subject=str(identifier), display_name='Smoke Member', email='private-member@example.com', created_at=now))",
+        "  s.execute(sessions.insert().values(id=uuid4(), user_id=identifier, token_hash=token_hash(token), created_at=now, expires_at=now + timedelta(hours=8)))",
+        " generation = join_member(s, workspace_id, identifier)",
+        "db.close()",
+        "print(json.dumps({'token': token, 'user_id': str(identifier), 'membership_id': str(generation)}))",
+    ]), str(UUID(workspace_id)), str(UUID(user_id)) if user_id else ""))
+    if result["token"] is not None:
+        docker.secrets = (*docker.secrets, result["token"])
+    return result
+
+
 def smoke(image, skip_build, report):
     report.parent.mkdir(parents=True, exist_ok=True)
     results = {"status": "running", "image": image, "checks": []}
@@ -193,7 +223,7 @@ def smoke(image, skip_build, report):
                     " s.execute(users.insert().values(id=identifier, provider='google', provider_subject=str(identifier), display_name='Smoke Fixture', email='smoke@example.com', created_at=now))",
                     " s.execute(sessions.insert().values(id=uuid4(), user_id=identifier, token_hash=token_hash(token), created_at=now, expires_at=now + timedelta(hours=8)))",
                     "db.close()",
-                    "print(json.dumps({'token': token}))",
+                    "print(json.dumps({'token': token, 'user_id': str(identifier)}))",
                 ])))
                 docker.secrets = (*docker.secrets, actor["token"])
                 bearer = {"Authorization": "Bearer " + actor["token"]}
@@ -215,8 +245,36 @@ def smoke(image, skip_build, report):
                 require(json.loads(missing)["error"]["code"] == "PRECONDITION_REQUIRED", "Missing precondition differs.")
                 renamed_headers, renamed = request(base_url, target, 200, method="PATCH", body={"name": "Renamed"}, headers={**bearer, "If-Match": '"1"'})
                 require(json.loads(renamed)["version"] == 2 and renamed_headers["ETag"] == '"2"', "Rename version differs.")
+                member = membership_fixture(docker, workspace["id"])
+                member_bearer = {"Authorization": "Bearer " + member["token"]}
+                _, member_list = request(base_url, target + "/members", 200, headers=member_bearer)
+                listed = json.loads(member_list)["items"]
+                require(len(listed) == 2 and all(set(item["user"]) == {"id", "display_name"} for item in listed), "Member list includes private or incorrect data.")
+                require(any(item["membership_id"] == member["membership_id"] for item in listed), "Member generation is missing.")
+                _, searched = request(base_url, target + "/members?q=sMoKe%20mEmBeR", 200, headers=bearer)
+                require([item["membership_id"] for item in json.loads(searched)["items"]] == [member["membership_id"]], "Display-name search differs.")
+                request(base_url, target + "/members/" + actor["user_id"], 403, method="DELETE", headers=member_bearer)
+                request(base_url, target + "/members/" + actor["user_id"], 409, method="DELETE", headers=bearer)
+                request(base_url, target + "/membership", 409, method="DELETE", headers=bearer)
+                removal_path = target + "/members/" + member["user_id"]
+                for _ in range(2):
+                    _, removed = request(base_url, removal_path, 204, method="DELETE", headers=bearer)
+                    require(removed == "", "Removal must be bodyless.")
+                request(base_url, target + "/members", 404, headers=member_bearer)
+                request(base_url, target, 404, headers=member_bearer)
+                replacement = membership_fixture(docker, workspace["id"], member["user_id"])
+                require(replacement["membership_id"] != member["membership_id"], "Rejoin reused a revoked generation.")
+                request(base_url, target + "/members", 200, headers=member_bearer)
+                _, left = request(base_url, target + "/membership", 204, method="DELETE", headers=member_bearer)
+                require(left == "", "Leave must be bodyless.")
+                request(base_url, target + "/membership", 404, method="DELETE", headers=member_bearer)
+                request(base_url, target + "/members", 404, headers=member_bearer)
+                current_headers, current_body = request(base_url, target, 200, headers=bearer)
+                require(json.loads(current_body)["member_count"] == 1, "Member revocation did not update the workspace.")
+                deletion_version = json.loads(current_body)["version"] + 1
+                record("Member listing/search, owner boundaries, remove/repeat, rejoin generations, leave/repeat and immediate revocation verified")
                 request(base_url, target, 412, method="DELETE", headers={**bearer, "If-Match": '"1"'})
-                _, deleted = request(base_url, target, 204, method="DELETE", headers={**bearer, "If-Match": '"2"'})
+                _, deleted = request(base_url, target, 204, method="DELETE", headers={**bearer, "If-Match": current_headers["ETag"]})
                 require(deleted == "", "Delete response must be bodyless.")
                 request(base_url, target, 404, headers=bearer)
                 request(base_url, "/api/v1/workspaces", 404, method="POST", body={"name": "Smoke Team"}, headers=create_headers)
@@ -230,13 +288,19 @@ def smoke(image, skip_build, report):
                     "from identity_workspace.persistence import outbox, memberships",
                     "db = create_database(load_settings())",
                     "with db.transaction() as s:",
-                    " event = s.execute(select(outbox)).mappings().one()",
+                    " events = s.execute(select(outbox).order_by(outbox.c.created_at, outbox.c.event_id)).mappings().all()",
                     " active = s.scalar(select(func.count()).select_from(memberships).where(memberships.c.revoked_at.is_(None)))",
-                    " result = {'type': event['event_type'], 'published': event['published_at'] is not None, 'version': event['payload']['aggregate_version'], 'active_memberships': active}",
+                    " deleted = [event for event in events if event['event_type'] == 'workspace.deleted.v1']",
+                    " removals = [event for event in events if event['event_type'] == 'workspace.member_removed.v1']",
+                    " result = {'deletion_versions': [e['payload']['aggregate_version'] for e in deleted], 'all_pending': all(e['published_at'] is None for e in events), 'active_memberships': active, 'removals': [{'membership_id': e['payload']['data']['membership_id'], 'reason': e['payload']['data']['reason']} for e in removals]}",
                     "db.close()",
                     "print(json.dumps(result))",
                 ])))
-                require(lifecycle == {"type": "workspace.deleted.v1", "published": False, "version": 3, "active_memberships": 0}, "Authoritative deletion/outbox state differs.")
+                require(lifecycle == {
+                    "deletion_versions": [deletion_version], "all_pending": True, "active_memberships": 0,
+                    "removals": [{"membership_id": member["membership_id"], "reason": "removed"},
+                                 {"membership_id": replacement["membership_id"], "reason": "left"}],
+                }, "Generation-specific removal/deletion outbox state differs.")
                 record("Authenticated workspace create/retry/list/read/rename/delete, preconditions, quota release, and durable deletion event verified without a broker")
                 credential = f"synthetic-smoke-secret-{uuid4().hex}"
                 _, error_body = request(base_url, f"/missing/{credential}", 404)

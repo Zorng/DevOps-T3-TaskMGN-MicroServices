@@ -1,6 +1,6 @@
 # Identity & Workspace Service
 
-Status: FastAPI foundation, Google sign-in/application sessions, and workspace list/create/read/rename/delete are implemented. Workspace deletion uses real membership/invitation storage and a transactional deletion outbox. Invitation/member APIs, private authorization, and broker delivery remain follow-up tasks; see the [workspace integration handoff](docs/workspace-management.md#integration-handoff).
+Status: FastAPI foundation, Google sign-in/application sessions, workspace management, and member listing/search, owner removal and non-owner leave are implemented. Workspace and membership revocations persist real transactional lifecycle events. Invitation APIs, private authorization endpoints and broker delivery remain follow-up tasks; see [membership integration](docs/membership-permissions.md#removal-event-and-integration-handoff) and the [workspace integration handoff](docs/workspace-management.md#integration-handoff).
 
 Runtime: Python 3.13.16, FastAPI 0.163.0, PostgreSQL 18.7, SQLAlchemy 2, Psycopg 3, Alembic, and uv 0.13.8. Exact dependencies are locked in [uv.lock](uv.lock); see [stack decisions](docs/stack-decisions.md).
 
@@ -36,7 +36,7 @@ if ($LASTEXITCODE -ne 0) { throw "Container startup failed." }
 curl.exe -i http://127.0.0.1:8000/health/ready
 ```
 
-Expected readiness: 200 after migration `0003_workspace_management`. With no client ID configured, health can still run, while Google challenge/exchange return 503. Configure a real web client ID to perform browser sign-in. Rebuild the image and rerun the startup command when upgrading an older local container; migrations run before the new application starts.
+Expected readiness: 200 after migration `0004_membership_generations`. With no client ID configured, health can still run, while Google challenge/exchange return 503. Configure a real web client ID to perform browser sign-in. Rebuild the image and rerun the startup command when upgrading an older local container; migrations run before the new application starts.
 
 Follow [Google configuration, browser verification, and secret-safe troubleshooting](docs/google-signin.md). A local [browser verification tool](tools/google-signin.html) exercises challenge, exchange, current user, and logout while retaining tokens only in page memory. For host Python startup, see [application startup](docs/application-startup.md); for database ownership/migrations, see [database setup](docs/database-setup.md).
 
@@ -64,6 +64,18 @@ All five operations require an unexpired application bearer session.
 | `DELETE /api/v1/workspaces/{workspace_id}` | Owner-only authoritative deletion with `If-Match`; 204 after atomic local commit |
 
 Names are trimmed and checked at 1–100 Unicode code points. Missing/stale preconditions return 428/412; current members attempting owner-only mutations receive 403. Joined workspaces do not consume owned quota. Successful create responses and ETags are retained for 25 hours; retry an uncertain create with the same key and normalized body. See [reproducible HTTP examples, races, persistence, and deletion handoff](docs/workspace-management.md).
+
+## Membership endpoints
+
+All operations require a live application session and current workspace membership. A revoked member or outsider gets 404. Revoking workspace membership leaves the user's application session valid for other workspaces.
+
+| Method/path | Behavior |
+| --- | --- |
+| `GET /api/v1/workspaces/{workspace_id}/members` | At most 20 active members, ordered `joined_at ASC, membership_id ASC`; optional `q` searches display names case-insensitively (0–100 Unicode code points) |
+| `DELETE /api/v1/workspaces/{workspace_id}/members/{user_id}` | Owner removes a non-owner; 204, including an already absent target while the caller remains owner |
+| `DELETE /api/v1/workspaces/{workspace_id}/membership` | Current non-owner leaves; 204, then 404 on repeat |
+
+Current non-owners attempting removal get 403. Owners cannot leave or be removed (409 `OWNER_CANNOT_LEAVE`). Member responses contain user ID/display name, role, immutable membership ID and join time; emails and provider identifiers are excluded. Removal/leave need no `If-Match` or idempotency key. A real revocation increments workspace version, preserves the old generation and atomically saves `workspace.member_removed.v1` with reason `removed` or `left`. Every rejoin creates a new generation. See [setup, examples, shared primitives and event integration](docs/membership-permissions.md).
 
 ## Test and CI commands
 

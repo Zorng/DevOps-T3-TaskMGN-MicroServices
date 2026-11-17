@@ -4,7 +4,7 @@ from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 SCHEMA = "identity_workspace"
-SCHEMA_REVISION = "0003_workspace_management"
+SCHEMA_REVISION = "0004_membership_generations"
 metadata = MetaData(schema=SCHEMA)
 
 outbox = Table(
