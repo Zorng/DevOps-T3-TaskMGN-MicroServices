@@ -57,7 +57,7 @@ jobs:
         run: |
           docker version
           docker compose version
-      - name: Run authentication, workspace and membership suite and verify nonempty passing report
+      - name: Run authentication, workspace, membership and invitation suite and verify passing report
         run: |
           uv run --locked pytest "tests/$SUITE" -q --junitxml="test-results/$SUITE.xml"
           python scripts/verify_test_report.py "test-results/$SUITE.xml"
@@ -94,7 +94,7 @@ jobs:
           docker build --tag identity-workspace:ci \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" .
-      - name: Smoke-test health, sessions, workspace/member lifecycle and generation outbox
+      - name: Smoke-test invitations, membership generations, workspace lifecycle and outbox
         run: python scripts/smoke_container.py --skip-build --image identity-workspace:ci
       - name: Upload smoke report
         if: always()

@@ -57,14 +57,14 @@ def require_non_owner(workspace, membership):
         raise APIError(409, code="OWNER_CANNOT_LEAVE")
 
 
-def removal_event(workspace_id, version, membership, actor, reason, now):
+def removal_event(workspace_id, membership, actor, reason, now):
     if reason not in {"removed", "left"}:
         raise ValueError("Unknown membership removal reason.")
     return {
         "id": str(uuid4()), "type": "workspace.member_removed.v1", "schema_version": 1,
         "producer": "identity-workspace", "occurred_at": timestamp(now),
         "request_id": request_id_context.get() or str(uuid4()),
-        "aggregate_id": str(workspace_id), "aggregate_version": version,
+        "aggregate_id": str(membership["id"]), "aggregate_version": 2,
         "data": {
             "workspace_id": str(workspace_id), "user_id": str(membership["user_id"]),
             "membership_id": str(membership["id"]), "reason": reason,

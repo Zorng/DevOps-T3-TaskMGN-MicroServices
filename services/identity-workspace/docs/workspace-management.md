@@ -128,7 +128,7 @@ The image smoke script seeds an application-session fixture only in its disposab
 
 ## Integration handoff
 
-The invitation API and lifecycle outbox publisher are separate child tasks. This branch supplies real shared invitation storage, cancellation integrated into deletion, and the real transactional deletion event producer; fixture tests cover their local integration. Those tasks must reuse this storage and the lock order, rather than introduce independent invitation or outbox copies. Retain immutable membership generations and workspace tombstones.
+The [invitation API](registered-user-invitations.md) now reuses this storage and lock order, with real acceptance and pending cancellation verified alongside workspace deletion. The lifecycle outbox publisher remains a separate child task and must publish the existing immutable records rather than introduce another outbox. Retain immutable membership generations and workspace tombstones. The original fixture checks below record the earlier workspace-task verification.
 
 Before Task 3 is closed across the project, rerun deletion through the implemented invitation acceptance/cancellation paths and the lifecycle publisher/Task consumer: pending invites cancel, accepted members lose access, one immutable deletion event is delivered/retried, Task persists its terminal tombstone and cleanup stays asynchronous during outages. This branch does not claim broker delivery, private access endpoints or real Task cleanup have been implemented or verified. Keep the issue open for that cross-task integration and a passing hosted pipeline.
 

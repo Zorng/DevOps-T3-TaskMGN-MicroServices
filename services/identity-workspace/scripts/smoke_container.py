@@ -84,33 +84,27 @@ def health(base_url, readiness):
     return metrics
 
 
-def membership_fixture(docker, workspace_id, user_id=None):
-    """Seed/join only this disposable smoke DB, with a fresh generation on rejoin."""
+def registered_recipient_fixture(docker):
+    """Seed only a registered user/session; joins use the public invitation API."""
     result = json.loads(docker.compose("exec", "--no-TTY", "identity", "python", "-c", "\n".join([
-        "import json, secrets, sys",
+        "import json, secrets",
         "from datetime import timedelta",
-        "from uuid import UUID, uuid4",
+        "from uuid import uuid4",
         "from identity_workspace.config import load_settings",
         "from identity_workspace.database import create_database",
         "from identity_workspace.auth.service import token_hash",
         "from identity_workspace.auth.store import database_now",
-        "from identity_workspace.memberships.primitives import join_member",
         "from identity_workspace.persistence import users, sessions",
         "db = create_database(load_settings())",
-        "workspace_id = UUID(sys.argv[1])",
-        "identifier = UUID(sys.argv[2]) if sys.argv[2] else uuid4()",
-        "token = None if sys.argv[2] else secrets.token_urlsafe(32)",
+        "identifier, token = uuid4(), secrets.token_urlsafe(32)",
         "with db.transaction() as s:",
         " now = database_now(s)",
-        " if token is not None:",
-        "  s.execute(users.insert().values(id=identifier, provider='google', provider_subject=str(identifier), display_name='Smoke Member', email='private-member@example.com', created_at=now))",
-        "  s.execute(sessions.insert().values(id=uuid4(), user_id=identifier, token_hash=token_hash(token), created_at=now, expires_at=now + timedelta(hours=8)))",
-        " generation = join_member(s, workspace_id, identifier)",
+        " s.execute(users.insert().values(id=identifier, provider='google', provider_subject=str(identifier), display_name='Smoke Member', email='private-member@example.com', created_at=now))",
+        " s.execute(sessions.insert().values(id=uuid4(), user_id=identifier, token_hash=token_hash(token), created_at=now, expires_at=now + timedelta(hours=8)))",
         "db.close()",
-        "print(json.dumps({'token': token, 'user_id': str(identifier), 'membership_id': str(generation)}))",
-    ]), str(UUID(workspace_id)), str(UUID(user_id)) if user_id else ""))
-    if result["token"] is not None:
-        docker.secrets = (*docker.secrets, result["token"])
+        "print(json.dumps({'token': token, 'user_id': str(identifier)}))",
+    ])))
+    docker.secrets = (*docker.secrets, result["token"], "private-member@example.com", "PRIVATE-MEMBER@EXAMPLE.COM")
     return result
 
 
@@ -245,10 +239,37 @@ def smoke(image, skip_build, report):
                 require(json.loads(missing)["error"]["code"] == "PRECONDITION_REQUIRED", "Missing precondition differs.")
                 renamed_headers, renamed = request(base_url, target, 200, method="PATCH", body={"name": "Renamed"}, headers={**bearer, "If-Match": '"1"'})
                 require(json.loads(renamed)["version"] == 2 and renamed_headers["ETag"] == '"2"', "Rename version differs.")
-                member = membership_fixture(docker, workspace["id"])
+                member = registered_recipient_fixture(docker)
                 member_bearer = {"Authorization": "Bearer " + member["token"]}
+                invitation_ids = []
+
+                def invite_member():
+                    invitation_headers = {**bearer, "Idempotency-Key": str(uuid4())}
+                    _, pending_text = request(base_url, target + "/invitations", 201, method="POST",
+                                              body={"email": " PRIVATE-MEMBER@EXAMPLE.COM "}, headers=invitation_headers)
+                    pending = json.loads(pending_text)
+                    _, retry_text = request(base_url, target + "/invitations", 201, method="POST",
+                                            body={"email": "private-member@example.com"}, headers=invitation_headers)
+                    require(json.loads(retry_text) == pending, "Invitation retry changed its original response.")
+                    invitation_ids.append(pending["id"])
+                    return "/api/v1/invitations/" + pending["id"]
+
+                invitation_target = invite_member()
+                request(base_url, invitation_target, 200, headers=bearer)
+                request(base_url, invitation_target, 200, headers=member_bearer)
+                request(base_url, "/api/v1/invitations/not-a-uuid", 400, headers=member_bearer)
+                _, owned_invites = request(base_url, target + "/invitations?status=pending&limit=1", 200, headers=bearer)
+                _, received_invites = request(base_url, "/api/v1/invitations?status=pending&limit=1", 200, headers=member_bearer)
+                require([i["id"] for i in json.loads(owned_invites)["items"]] == invitation_ids, "Owner invitation listing differs.")
+                require(json.loads(owned_invites) == json.loads(received_invites), "Recipient invitation listing differs.")
+                request(base_url, invitation_target + "/cancel", 403, method="POST", headers=member_bearer)
+                request(base_url, invitation_target + "/response", 403, method="POST", body={"action": "accept"}, headers=bearer)
+                for _ in range(2):
+                    _, accepted = request(base_url, invitation_target + "/response", 200, method="POST", body={"action": "accept"}, headers=member_bearer)
+                    require(json.loads(accepted)["status"] == "accepted", "Invitation acceptance differs.")
                 _, member_list = request(base_url, target + "/members", 200, headers=member_bearer)
                 listed = json.loads(member_list)["items"]
+                member["membership_id"] = next(item["membership_id"] for item in listed if item["user"]["id"] == member["user_id"])
                 require(len(listed) == 2 and all(set(item["user"]) == {"id", "display_name"} for item in listed), "Member list includes private or incorrect data.")
                 require(any(item["membership_id"] == member["membership_id"] for item in listed), "Member generation is missing.")
                 _, searched = request(base_url, target + "/members?q=sMoKe%20mEmBeR", 200, headers=bearer)
@@ -262,13 +283,30 @@ def smoke(image, skip_build, report):
                     require(removed == "", "Removal must be bodyless.")
                 request(base_url, target + "/members", 404, headers=member_bearer)
                 request(base_url, target, 404, headers=member_bearer)
-                replacement = membership_fixture(docker, workspace["id"], member["user_id"])
+                request(base_url, invitation_target + "/response", 200, method="POST", body={"action": "accept"}, headers=member_bearer)
+                request(base_url, target + "/members", 404, headers=member_bearer)
+                replacement_target = invite_member()
+                request(base_url, replacement_target + "/response", 200, method="POST", body={"action": "accept"}, headers=member_bearer)
+                _, replacement_members = request(base_url, target + "/members", 200, headers=member_bearer)
+                replacement = next(item for item in json.loads(replacement_members)["items"] if item["user"]["id"] == member["user_id"])
                 require(replacement["membership_id"] != member["membership_id"], "Rejoin reused a revoked generation.")
                 request(base_url, target + "/members", 200, headers=member_bearer)
                 _, left = request(base_url, target + "/membership", 204, method="DELETE", headers=member_bearer)
                 require(left == "", "Leave must be bodyless.")
                 request(base_url, target + "/membership", 404, method="DELETE", headers=member_bearer)
                 request(base_url, target + "/members", 404, headers=member_bearer)
+                declined_target = invite_member()
+                for _ in range(2):
+                    _, declined = request(base_url, declined_target + "/response", 200, method="POST", body={"action": "decline"}, headers=member_bearer)
+                    require(json.loads(declined)["status"] == "declined", "Repeated decline differs.")
+                request(base_url, declined_target + "/cancel", 409, method="POST", headers=bearer)
+                cancelled_target = invite_member()
+                for _ in range(2):
+                    _, cancelled = request(base_url, cancelled_target + "/cancel", 200, method="POST", headers=bearer)
+                    require(json.loads(cancelled)["status"] == "cancelled", "Repeated cancellation differs.")
+                request(base_url, cancelled_target + "/response", 409, method="POST", body={"action": "accept"}, headers=member_bearer)
+                pending_target = invite_member()
+                record("Invitation create/retry, owner/recipient lists/detail, accept/decline/cancel, terminal retries and accepted-after-leave replay verified")
                 current_headers, current_body = request(base_url, target, 200, headers=bearer)
                 require(json.loads(current_body)["member_count"] == 1, "Member revocation did not update the workspace.")
                 deletion_version = json.loads(current_body)["version"] + 1
@@ -277,29 +315,36 @@ def smoke(image, skip_build, report):
                 _, deleted = request(base_url, target, 204, method="DELETE", headers={**bearer, "If-Match": current_headers["ETag"]})
                 require(deleted == "", "Delete response must be bodyless.")
                 request(base_url, target, 404, headers=bearer)
+                request(base_url, pending_target, 404, headers=member_bearer)
+                _, hidden_invitations = request(base_url, "/api/v1/invitations", 200, headers=member_bearer)
+                require(json.loads(hidden_invitations) == {"items": [], "next_cursor": None}, "Deleted workspace invitations remain visible.")
                 request(base_url, "/api/v1/workspaces", 404, method="POST", body={"name": "Smoke Team"}, headers=create_headers)
                 _, me = request(base_url, "/api/v1/me", 200, headers=bearer)
                 require(json.loads(me)["owned_workspace_count"] == 0, "Deletion did not release ownership quota.")
                 lifecycle = json.loads(docker.compose("exec", "--no-TTY", "identity", "python", "-c", "\n".join([
                     "import json",
+                    "from uuid import UUID",
                     "from sqlalchemy import select, func",
                     "from identity_workspace.config import load_settings",
                     "from identity_workspace.database import create_database",
-                    "from identity_workspace.persistence import outbox, memberships",
+                    "from identity_workspace.persistence import outbox, memberships, invitations",
                     "db = create_database(load_settings())",
                     "with db.transaction() as s:",
                     " events = s.execute(select(outbox).order_by(outbox.c.created_at, outbox.c.event_id)).mappings().all()",
                     " active = s.scalar(select(func.count()).select_from(memberships).where(memberships.c.revoked_at.is_(None)))",
                     " deleted = [event for event in events if event['event_type'] == 'workspace.deleted.v1']",
                     " removals = [event for event in events if event['event_type'] == 'workspace.member_removed.v1']",
-                    " result = {'deletion_versions': [e['payload']['aggregate_version'] for e in deleted], 'all_pending': all(e['published_at'] is None for e in events), 'active_memberships': active, 'removals': [{'membership_id': e['payload']['data']['membership_id'], 'reason': e['payload']['data']['reason']} for e in removals]}",
+                    " created = [event for event in events if event['event_type'] == 'invitation.created.v1']",
+                    " result = {'deletion_versions': [e['payload']['aggregate_version'] for e in deleted], 'all_pending': all(e['published_at'] is None for e in events), 'active_memberships': active, 'removals': [{'membership_id': e['payload']['data']['membership_id'], 'reason': e['payload']['data']['reason'], 'aggregate_id': e['payload']['aggregate_id'], 'aggregate_version': e['payload']['aggregate_version']} for e in removals], 'invitation_ids': sorted(e['payload']['data']['invitation_id'] for e in created), 'invitation_aggregates_valid': all(e['payload']['aggregate_id'] == e['payload']['data']['invitation_id'] and e['payload']['aggregate_version'] == 1 for e in created), 'invitation_states': sorted(s.scalar(select(invitations.c.status).where(invitations.c.id == UUID(e['payload']['data']['invitation_id']))) for e in created)}",
                     "db.close()",
                     "print(json.dumps(result))",
                 ])))
                 require(lifecycle == {
                     "deletion_versions": [deletion_version], "all_pending": True, "active_memberships": 0,
-                    "removals": [{"membership_id": member["membership_id"], "reason": "removed"},
-                                 {"membership_id": replacement["membership_id"], "reason": "left"}],
+                    "removals": [{"membership_id": member["membership_id"], "reason": "removed", "aggregate_id": member["membership_id"], "aggregate_version": 2},
+                                 {"membership_id": replacement["membership_id"], "reason": "left", "aggregate_id": replacement["membership_id"], "aggregate_version": 2}],
+                    "invitation_ids": sorted(invitation_ids), "invitation_aggregates_valid": True,
+                    "invitation_states": ["accepted", "accepted", "cancelled", "cancelled", "declined"],
                 }, "Generation-specific removal/deletion outbox state differs.")
                 record("Authenticated workspace create/retry/list/read/rename/delete, preconditions, quota release, and durable deletion event verified without a broker")
                 credential = f"synthetic-smoke-secret-{uuid4().hex}"

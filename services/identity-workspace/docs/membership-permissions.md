@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) { throw "Container startup failed." }
 curl.exe -i http://127.0.0.1:8000/health/ready
 ```
 
-Compose upgrades through `0004_membership_generations` before starting this application. Host Python users run `uv run --locked alembic upgrade head` before startup. The migration preserves existing users, sessions, workspaces and membership rows, and adds a database trigger: generation ID/workspace/user/role/join time cannot change, and revocation cannot be undone or retimestamped. No old migration is rewritten. Downgrading removes this guard; it is tested only on disposable databases.
+Compose upgrades through `0004_membership_generations` and the follow-up invitation migration `0005_registered_invitations` before starting this application. Host Python users run `uv run --locked alembic upgrade head` before startup. The membership migration preserves existing users, sessions, workspaces and membership rows, and adds a database trigger: generation ID/workspace/user/role/join time cannot change, and revocation cannot be undone or retimestamped. No old migration is rewritten. Downgrading removes this guard; it is tested only on disposable databases.
 
 ## Endpoint and permission rules
 
@@ -42,7 +42,7 @@ Optional `q` matches a substring of display name case-insensitively, preserving 
 
 ## HTTP examples
 
-These commands assume a disposable workspace already contains two registered users, one owner and one non-owner. Invitation acceptance is a separate task; until its API exists, use the isolated integration/smoke fixtures below to reproduce multi-member behavior. No public join or test-auth bypass is introduced.
+These commands assume a disposable workspace already contains two registered users, one owner and one non-owner. First create and accept an invitation using the [registered-user invitation guide](registered-user-invitations.md). Integration tests still use isolated fixtures; Docker smoke now joins/rejoins through the real invitation endpoints. No unauthenticated join or test-auth bypass is introduced.
 
 Use application tokens returned by Google exchange, not Google ID tokens. Prompt without echoing a real token and keep it only in shell memory. Do not commit tokens, put them in URLs/command history or copy them into logs/screenshots. From PowerShell:
 
@@ -92,7 +92,7 @@ Membership rows are retained after revocation, including their IDs and original 
 
 ## Removal event and integration handoff
 
-Removal/leave appends the real `workspace.member_removed.v1` event into the existing outbox in the same transaction as revocation. It contains the updated workspace aggregate version, propagated request UUID and `data.workspace_id`, `data.user_id`, exact revoked `data.membership_id`, actor ID/display-name snapshot, and reason `removed` or `left`. Event identity/payload are immutable under the existing outbox guard. It contains no email, Google subject or credentials. Concurrent leave/removal emits exactly one event for the winning revocation; a replayed absent-target removal emits none.
+Removal/leave appends the real `workspace.member_removed.v1` event into the existing outbox in the same transaction as revocation. Its aggregate ID is the membership ID and its aggregate version is the terminal generation version `2`, as specified in the shared event contract; the workspace's version increments separately. It contains the propagated request UUID and `data.workspace_id`, `data.user_id`, exact revoked `data.membership_id`, actor ID/display-name snapshot, and reason `removed` or `left`. Event identity/payload are immutable under the existing outbox guard. It contains no email, Google subject or credentials. Concurrent leave/removal emits exactly one event for the winning revocation; a replayed absent-target removal emits none.
 
 The lifecycle outbox task must publish the saved payload/ID unchanged, retry durably during outages and preserve pending events. Task cleanup must persist a tombstone for the matching workspace/user/**membership generation**, clear assignments of that generation and preserve any later rejoined generation. Final removal-event integration depends on that publisher/consumer work; saving an event locally does not prove broker delivery or Task cleanup. Keep that integration item open until delivery/retry/out-of-order behavior is demonstrated alongside the lifecycle task.
 
