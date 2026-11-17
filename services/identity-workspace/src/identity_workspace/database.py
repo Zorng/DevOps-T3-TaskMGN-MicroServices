@@ -16,7 +16,8 @@ READINESS_QUERY = text(
     "AND NOT pg_is_in_recovery() "
     + "".join(
         f"AND has_table_privilege('identity_workspace.{table}', '{privilege}') "
-        for table in ("outbox", "users", "auth_challenges", "sessions", "auth_rate_limits")
+        for table in ("outbox", "users", "auth_challenges", "sessions", "auth_rate_limits",
+                      "workspaces", "memberships", "invitations", "idempotency_records", "workspace_cursors")
         for privilege in ("SELECT", "INSERT", "UPDATE")
     ) +
     "FROM public.alembic_version"

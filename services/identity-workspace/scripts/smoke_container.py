@@ -151,7 +151,7 @@ def smoke(image, skip_build, report):
                     "installed = {d.metadata['Name'].lower() for d in m.distributions()}",
                     "private = ['.env', '.env.container', '.secrets', '.tools', '.uv-cache', 'tests']",
                     "print(json.dumps({'uid': os.geteuid(), 'gid': os.getegid(), 'python': sys.version.split()[0],",
-                    " 'development_packages': sorted(installed & {'pytest', 'httpx2', 'uv', 'uv-build'}),",
+                    " 'development_packages': sorted(installed & {'pytest', 'httpx2', 'jsonschema', 'uv', 'uv-build'}),",
                     " 'private_paths': [p for p in private if (pathlib.Path('/app') / p).exists()],",
                     " 'uv_binary': shutil.which('uv')}))",
                 ])))
@@ -175,6 +175,69 @@ def smoke(image, skip_build, report):
                     _, payload_text = request(base_url, path, expected, method=method, body=payload, headers={"Origin": "http://localhost:5173"})
                     require(json.loads(payload_text)["error"]["code"] == code, "Packaged auth route returned the wrong error.")
                 record("Packaged authentication routes enforce Google configuration and bearer requirements")
+                # Seed a synthetic session only in this disposable smoke database.
+                # No production bypass or live provider credentials are enabled.
+                actor = json.loads(docker.compose("exec", "--no-TTY", "identity", "python", "-c", "\n".join([
+                    "import json, secrets",
+                    "from datetime import timedelta",
+                    "from uuid import uuid4",
+                    "from identity_workspace.config import load_settings",
+                    "from identity_workspace.database import create_database",
+                    "from identity_workspace.auth.service import token_hash",
+                    "from identity_workspace.auth.store import database_now",
+                    "from identity_workspace.persistence import users, sessions",
+                    "db = create_database(load_settings())",
+                    "identifier, token = uuid4(), secrets.token_urlsafe(32)",
+                    "with db.transaction() as s:",
+                    " now = database_now(s)",
+                    " s.execute(users.insert().values(id=identifier, provider='google', provider_subject=str(identifier), display_name='Smoke Fixture', email='smoke@example.com', created_at=now))",
+                    " s.execute(sessions.insert().values(id=uuid4(), user_id=identifier, token_hash=token_hash(token), created_at=now, expires_at=now + timedelta(hours=8)))",
+                    "db.close()",
+                    "print(json.dumps({'token': token}))",
+                ])))
+                docker.secrets = (*docker.secrets, actor["token"])
+                bearer = {"Authorization": "Bearer " + actor["token"]}
+                create_headers = {**bearer, "Idempotency-Key": str(uuid4())}
+                _, denied = request(base_url, "/api/v1/workspaces", 401)
+                require(json.loads(denied)["error"]["code"] == "AUTH_REQUIRED", "Workspace auth guard differs.")
+                original_headers, original = request(base_url, "/api/v1/workspaces", 201, method="POST", body={"name": " Smoke Team "}, headers=create_headers)
+                workspace = json.loads(original)
+                require(workspace["name"] == "Smoke Team" and workspace["my_role"] == "owner" and workspace["member_count"] == 1, "Workspace create projection differs.")
+                require(original_headers["ETag"] == '"1"', "Initial ETag differs.")
+                replay_headers, replay = request(base_url, "/api/v1/workspaces", 201, method="POST", body={"name": "Smoke Team"}, headers=create_headers)
+                require(json.loads(replay) == workspace and replay_headers["ETag"] == original_headers["ETag"], "Create retry changed the original response.")
+                target = "/api/v1/workspaces/" + workspace["id"]
+                _, listing = request(base_url, "/api/v1/workspaces?limit=1", 200, headers=bearer)
+                require(json.loads(listing) == {"items": [workspace], "next_cursor": None}, "Workspace list differs.")
+                _, read_back = request(base_url, target, 200, headers=bearer)
+                require(json.loads(read_back) == workspace, "Workspace read differs.")
+                _, missing = request(base_url, target, 428, method="PATCH", body={"name": "Renamed"}, headers=bearer)
+                require(json.loads(missing)["error"]["code"] == "PRECONDITION_REQUIRED", "Missing precondition differs.")
+                renamed_headers, renamed = request(base_url, target, 200, method="PATCH", body={"name": "Renamed"}, headers={**bearer, "If-Match": '"1"'})
+                require(json.loads(renamed)["version"] == 2 and renamed_headers["ETag"] == '"2"', "Rename version differs.")
+                request(base_url, target, 412, method="DELETE", headers={**bearer, "If-Match": '"1"'})
+                _, deleted = request(base_url, target, 204, method="DELETE", headers={**bearer, "If-Match": '"2"'})
+                require(deleted == "", "Delete response must be bodyless.")
+                request(base_url, target, 404, headers=bearer)
+                request(base_url, "/api/v1/workspaces", 404, method="POST", body={"name": "Smoke Team"}, headers=create_headers)
+                _, me = request(base_url, "/api/v1/me", 200, headers=bearer)
+                require(json.loads(me)["owned_workspace_count"] == 0, "Deletion did not release ownership quota.")
+                lifecycle = json.loads(docker.compose("exec", "--no-TTY", "identity", "python", "-c", "\n".join([
+                    "import json",
+                    "from sqlalchemy import select, func",
+                    "from identity_workspace.config import load_settings",
+                    "from identity_workspace.database import create_database",
+                    "from identity_workspace.persistence import outbox, memberships",
+                    "db = create_database(load_settings())",
+                    "with db.transaction() as s:",
+                    " event = s.execute(select(outbox)).mappings().one()",
+                    " active = s.scalar(select(func.count()).select_from(memberships).where(memberships.c.revoked_at.is_(None)))",
+                    " result = {'type': event['event_type'], 'published': event['published_at'] is not None, 'version': event['payload']['aggregate_version'], 'active_memberships': active}",
+                    "db.close()",
+                    "print(json.dumps(result))",
+                ])))
+                require(lifecycle == {"type": "workspace.deleted.v1", "published": False, "version": 3, "active_memberships": 0}, "Authoritative deletion/outbox state differs.")
+                record("Authenticated workspace create/retry/list/read/rename/delete, preconditions, quota release, and durable deletion event verified without a broker")
                 credential = f"synthetic-smoke-secret-{uuid4().hex}"
                 _, error_body = request(base_url, f"/missing/{credential}", 404)
                 _, query_error = request(base_url, f"/health/live?credential={credential}", 400)

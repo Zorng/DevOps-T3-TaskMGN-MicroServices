@@ -70,3 +70,23 @@ def auth_dependencies(settings):
         settings=settings, store=store, verifier=verifier, now=now,
         nonce=nonce, identifier=identifier, claims=claims, user=user,
     )
+
+
+@pytest.fixture
+def workspace_dependencies(settings):
+    from identity_workspace.workspaces.store import WorkspaceStore
+
+    settings = settings.model_copy(update={"allowed_origins": ("http://localhost:5173",)})
+    identifier, actor = uuid4(), uuid4()
+    body = {
+        "id": str(identifier), "name": "Team", "owner_id": str(actor), "my_role": "owner",
+        "member_count": 1, "version": 1, "created_at": "2026-11-16T00:00:00.000Z",
+        "updated_at": "2026-11-16T00:00:00.000Z",
+    }
+    store = Mock(spec=WorkspaceStore)
+    store.create.return_value = (body, '"1"')
+    store.read.return_value = (body, '"1"')
+    store.rename.return_value = ({**body, "name": "Renamed", "version": 2}, '"2"')
+    store.list.return_value = {"items": [body], "next_cursor": None}
+    store.delete.return_value = None
+    return SimpleNamespace(settings=settings, store=store, identifier=identifier, actor=actor, body=body, key=uuid4())

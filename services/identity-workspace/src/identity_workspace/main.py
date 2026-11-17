@@ -21,6 +21,9 @@ from identity_workspace.health import router as health_router
 from identity_workspace.errors import APIError, api_error_handler, http_error_handler, validation_error_handler
 from identity_workspace.http_contract import ContractHTTPMiddleware
 from identity_workspace.observability import Observability, router as metrics_router
+from identity_workspace.workspaces.routes import router as workspace_router
+from identity_workspace.workspaces.service import WorkspaceService
+from identity_workspace.workspaces.store import WorkspaceStore
 
 
 class ApplicationLifecycleError(RuntimeError):
@@ -34,6 +37,7 @@ def create_app(
     log_stream: TextIO | None = None,
     google_verifier_factory=GoogleTokenVerifier,
     auth_store_factory=AuthStore,
+    workspace_store_factory=WorkspaceStore,
 ) -> FastAPI:
     app_settings = settings if settings is not None else load_settings()
 
@@ -45,6 +49,7 @@ def create_app(
             database = await run_in_threadpool(database_factory, app_settings)
             verifier = google_verifier_factory(app_settings)
             app.state.auth = AuthService(auth_store_factory(database), verifier, app_settings)
+            app.state.workspaces = WorkspaceService(workspace_store_factory(database))
         except Exception:
             for resource in (verifier, database):
                 if resource is not None:
@@ -53,6 +58,7 @@ def create_app(
                     except Exception:
                         pass
             app.state.auth = None
+            app.state.workspaces = None
             app.state.observability.log.event(logging.ERROR, "application_startup_failed", error_category="startup_failed")
             app.state.observability.close()
             startup_failed = True
@@ -74,6 +80,7 @@ def create_app(
                         shutdown_failed = True
             finally:
                 app.state.auth = None
+                app.state.workspaces = None
                 app.state.database = None
                 app.state.observability.log.event(logging.INFO, "application_stopped")
                 app.state.observability.close()
@@ -91,6 +98,7 @@ def create_app(
     app.state.settings = app_settings
     app.state.database = None
     app.state.auth = None
+    app.state.workspaces = None
     app.router.redirect_slashes = False
     app.add_exception_handler(APIError, api_error_handler)
     app.add_exception_handler(HTTPException, http_error_handler)
@@ -98,6 +106,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(auth_router)
+    app.include_router(workspace_router)
 
     def route_names():
         return {
