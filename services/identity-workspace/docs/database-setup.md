@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
 & $identityUv run --locked alembic check
 ```
 
-Expected revision: `0002_google_sessions (head)`. `alembic check` should report no new upgrade operations. Repeating `upgrade head` is safe. Migrations run explicitly, once before application startup; application workers do not create or alter tables automatically. See [Alembic's migration tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html).
+Expected revision: `0003_workspace_management (head)`. `alembic check` should report no new upgrade operations. Repeating `upgrade head` is safe. Migrations run explicitly, once before application startup; application workers do not create or alter tables automatically. See [Alembic's migration tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html).
 
 `alembic.ini` contains no URL or credentials. Online migrations use the same validated settings and bounded database connection/query timeouts as the application. SQL parameters are hidden, and URL passwords are not interpolated through INI configuration. Offline SQL generation needs no database credentials:
 
@@ -71,6 +71,8 @@ Use `Database.transaction()` for both a future business change and its outbox in
 No user, session, workspace, membership, or invitation business tables are introduced by this foundation. Test-only transaction probe tables exist solely inside disposable integration databases.
 
 The follow-up [authentication migration](google-signin.md#flow-and-persistence), `0002_google_sessions`, adds users, challenge hashes, session hashes, and shared rate-limit buckets while preserving outbox storage. It introduces no workspace/membership/invitation tables. Session/challenge lifetimes and Google-subject identity constraints are enforced in PostgreSQL; the authentication guide documents bounded cleanup.
+
+The current [workspace migration](workspace-management.md#persistence-and-concurrency), `0003_workspace_management`, adds workspaces, membership generations, shared invitation lifecycle storage, successful-create records, and authenticated opaque cursors. Workspace deletion now produces a real outbox event in the same transaction; a trigger makes its identity/payload immutable while allowing delivery bookkeeping updates. Invitation endpoints and broker delivery remain separate integration tasks. The earlier foundation description above records what migration `0001` introduced.
 
 ## Persistence and troubleshooting
 

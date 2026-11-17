@@ -1,6 +1,6 @@
 # Identity & Workspace Service
 
-Status: FastAPI foundation and Google sign-in/application sessions are implemented. Workspace, membership, invitation, and private authorization APIs remain follow-up tasks.
+Status: FastAPI foundation, Google sign-in/application sessions, and workspace list/create/read/rename/delete are implemented. Workspace deletion uses real membership/invitation storage and a transactional deletion outbox. Invitation/member APIs, private authorization, and broker delivery remain follow-up tasks; see the [workspace integration handoff](docs/workspace-management.md#integration-handoff).
 
 Runtime: Python 3.13.16, FastAPI 0.163.0, PostgreSQL 18.7, SQLAlchemy 2, Psycopg 3, Alembic, and uv 0.13.8. Exact dependencies are locked in [uv.lock](uv.lock); see [stack decisions](docs/stack-decisions.md).
 
@@ -36,7 +36,7 @@ if ($LASTEXITCODE -ne 0) { throw "Container startup failed." }
 curl.exe -i http://127.0.0.1:8000/health/ready
 ```
 
-Expected readiness: 200 after migration `0002_google_sessions`. With no client ID configured, health can still run, while Google challenge/exchange return 503. Configure a real web client ID to perform browser sign-in.
+Expected readiness: 200 after migration `0003_workspace_management`. With no client ID configured, health can still run, while Google challenge/exchange return 503. Configure a real web client ID to perform browser sign-in. Rebuild the image and rerun the startup command when upgrading an older local container; migrations run before the new application starts.
 
 Follow [Google configuration, browser verification, and secret-safe troubleshooting](docs/google-signin.md). A local [browser verification tool](tools/google-signin.html) exercises challenge, exchange, current user, and logout while retaining tokens only in page memory. For host Python startup, see [application startup](docs/application-startup.md); for database ownership/migrations, see [database setup](docs/database-setup.md).
 
@@ -49,7 +49,21 @@ Follow [Google configuration, browser verification, and secret-safe troubleshoot
 | `POST /api/v1/auth/logout` | Revokes only the presented application session; 204, then 401 on replay |
 | `GET /api/v1/me` | Fresh session validation; returns current user and stored owned-workspace count |
 
-Users are identified by Google subject, never merged by email. Only session token hashes are stored. No application session cookie or refresh endpoint is introduced. Unauthenticated health and metrics routes remain private operational endpoints. Protected workspace/private service operations are subsequent tasks.
+Users are identified by Google subject, never merged by email. Only session token hashes are stored. No application session cookie or refresh endpoint is introduced. Unauthenticated health and metrics routes remain private operational endpoints.
+
+## Workspace endpoints
+
+All five operations require an unexpired application bearer session.
+
+| Method/path | Behavior |
+| --- | --- |
+| `GET /api/v1/workspaces` | Active memberships only; `limit` defaults to 20 (maximum 100), opaque keyset cursor |
+| `POST /api/v1/workspaces` | JSON `name`, UUID `Idempotency-Key`; 201 with owner membership and `ETag: "1"`; ten active owned workspaces maximum |
+| `GET /api/v1/workspaces/{workspace_id}` | Current member only; 200 with ETag, inaccessible/deleted returns 404 |
+| `PATCH /api/v1/workspaces/{workspace_id}` | Owner-only rename; JSON `name` and exact `If-Match` required |
+| `DELETE /api/v1/workspaces/{workspace_id}` | Owner-only authoritative deletion with `If-Match`; 204 after atomic local commit |
+
+Names are trimmed and checked at 1–100 Unicode code points. Missing/stale preconditions return 428/412; current members attempting owner-only mutations receive 403. Joined workspaces do not consume owned quota. Successful create responses and ETags are retained for 25 hours; retry an uncertain create with the same key and normalized body. See [reproducible HTTP examples, races, persistence, and deletion handoff](docs/workspace-management.md).
 
 ## Test and CI commands
 

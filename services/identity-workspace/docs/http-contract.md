@@ -59,7 +59,7 @@ Reusable field types include:
 - `UUIDValue`: accepts canonical UUID JSON strings without relaxing numeric/boolean strictness.
 - `CalendarDate`: accepts real YYYY-MM-DD dates, including valid leap dates.
 
-The nonblank helper preserves the original text when checking whitespace-only content, allowing future comment-like inputs to retain offsets. No user-authored value is silently truncated. The field declarations preserve snake_case JSON keys; business-specific validation, PATCH semantics, idempotency, quotas, sessions, and authorization remain their subsequent feature tasks.
+The nonblank helper preserves the original text when checking whitespace-only content, allowing future comment-like inputs to retain offsets. No user-authored value is silently truncated. The field declarations preserve snake_case JSON keys. Follow-up [session handling](google-signin.md) and [workspace management](workspace-management.md) now implement authentication/authorization, name validation, PATCH semantics, idempotency, pagination and the ownership quota using these conventions.
 
 ## CORS configuration
 

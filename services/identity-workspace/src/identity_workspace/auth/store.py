@@ -17,6 +17,31 @@ def database_now(session):
     return session.scalar(select(func.date_trunc("milliseconds", func.clock_timestamp())))
 
 
+def session_actor(session, token_hash: bytes, *, lock=False):
+    """Revalidate the presented session inside the operation's transaction.
+
+    NO KEY UPDATE serializes an owner's quota without blocking FK KEY SHARE
+    locks from independent members. Every workspace writer locks actor first.
+    """
+    statement = select(users).join(sessions, sessions.c.user_id == users.c.id).where(
+        sessions.c.token_hash == token_hash, sessions.c.revoked_at.is_(None),
+        sessions.c.expires_at > func.clock_timestamp(),
+    )
+    if lock:
+        statement = statement.with_for_update(of=users, key_share=True)
+    row = session.execute(statement).mappings().one_or_none()
+    if row is None:
+        raise APIError(401, code="SESSION_INVALID")
+    # A lock wait may have outlived the session's expiry or a concurrent logout.
+    valid = session.scalar(select(sessions.c.id).where(
+        sessions.c.token_hash == token_hash, sessions.c.revoked_at.is_(None),
+        sessions.c.expires_at > func.clock_timestamp(),
+    ))
+    if valid is None:
+        raise APIError(401, code="SESSION_INVALID")
+    return row
+
+
 class AuthStore:
     def __init__(self, database):
         self.database = database
@@ -88,13 +113,7 @@ class AuthStore:
 
     def current_user(self, token_hash: bytes):
         with self.database.transaction() as session:
-            row = session.execute(select(users).join(sessions, sessions.c.user_id == users.c.id).where(
-                sessions.c.token_hash == token_hash,
-                sessions.c.revoked_at.is_(None),
-                sessions.c.expires_at > func.clock_timestamp(),
-            )).mappings().one_or_none()
-            if row is None:
-                raise APIError(401, code="SESSION_INVALID")
+            row = session_actor(session, token_hash)
             return public_user(row), row["owned_workspace_count"]
 
     def logout(self, token_hash: bytes):

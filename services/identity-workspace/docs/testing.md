@@ -4,6 +4,8 @@ The scaffold has separate unit, HTTP request, and real PostgreSQL integration su
 
 [Google sign-in/session tests](google-signin.md#automated-verification) now cover all four authentication endpoints, offline signature/claim checks, and real database atomicity/concurrency. Pytest blocks the requests HTTP transport by default; tests inject a Google verifier or key-transport double and need no real provider credentials.
 
+[Workspace tests](workspace-management.md#automated-verification) cover all five workspace endpoints with unit/request suites and real PostgreSQL quota/retry/stale-write races, rollback, pagination, authorization and atomic deletion. Persisted invitation fixtures exercise cancellation until invitation endpoints are implemented. Responses and deletion events are validated against shared JSON Schemas. Container smoke now exercises the authenticated workspace lifecycle using a synthetic session in its disposable database, including the pending deletion outbox record.
+
 ## Prerequisites
 
 Complete [environment setup](environment-setup.md) to install Python 3.13.16, uv 0.13.8, and the locked development dependencies. Run commands from `services/identity-workspace/`.

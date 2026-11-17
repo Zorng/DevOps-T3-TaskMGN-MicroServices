@@ -79,7 +79,7 @@ def error_response(error: APIError, *, headers: dict[str, str] | None = None) ->
     response_headers = dict(headers or {})
     if error.status_code == 401:
         response_headers.setdefault("WWW-Authenticate", "Bearer")
-    if error.status_code in {429, 503}:
+    if error.status_code in {429, 503} or error.code == "IDEMPOTENCY_IN_PROGRESS":
         response_headers["Retry-After"] = str(max(1, min(error.retry_after or 2, 86400)))
     return JSONResponse(body.model_dump(), status_code=error.status_code, headers=response_headers)
 

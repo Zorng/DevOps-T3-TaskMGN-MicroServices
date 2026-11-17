@@ -31,6 +31,8 @@ Test jobs use Ubuntu 24.04, Python 3.13.16 from [.python-version](../.python-ver
 
 Google sign-in/session tests inject verifier or key-transport doubles, and pytest blocks real requests HTTP calls. The job explicitly supplies an empty Google client-ID setting; tests use synthetic configuration and ephemeral signature keys. Real Google project provisioning/browser verification is separate and documented in [Google sign-in](google-signin.md).
 
+Workspace tests run in the same required matrix, including real PostgreSQL quota/retry races and atomic deletion with persisted invitation fixtures. The locked dev-only JSON Schema validator checks responses/events against `api_contracts/`. Container smoke exercises all five workspace endpoints with a synthetic session seeded solely in its disposable database, checks retry/precondition behavior and verifies a pending deletion outbox event without a broker. See [workspace verification and the cross-task closure requirement](workspace-management.md#integration-handoff).
+
 Each matrix entry runs the equivalent of these commands from the service directory, with `unit`, `request`, or `integration` as the suite:
 
 ```text
@@ -67,14 +69,14 @@ References: [GitHub Docker publishing](https://docs.github.com/en/actions/tutori
 
 ## Get the first hosted result
 
-Review the scaffold and workflow, then commit/push the branch when ready. From the repository root:
+Review the service changes and workflow, then commit/push the branch when ready. For the workspace-management branch, from the repository root:
 
 ```powershell
 git add .github/workflows/identity-workspace.yml services/identity-workspace
 git diff --cached --stat
 git diff --cached --name-only
-git commit -m "feat(identity-workspace): scaffold FastAPI service and test pipeline"
-git push -u origin feat/identity-workspace/fastapi-scaffold
+git commit -m "feat(identity-workspace): implement workspace management and ownership limit"
+git push -u origin feat/identity-workspace/workspace-management
 ```
 
 Real environment files, password files, tools, caches, and reports remain ignored. Open a pull request from this branch into `main`; pushing this feature branch alone does not match the workflow's push trigger. In the PR checks or GitHub Actions tab, inspect **Identity and Workspace**, confirm the three test entries and container/aggregate checks succeed, and inspect their artifacts. Publishing should be skipped for the PR.
