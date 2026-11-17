@@ -16,3 +16,5 @@ Required deployment behavior:
 - ARM64-compatible images if Oracle ARM VMs are used.
 
 VM count, region, provisioning method, broker product, and monitoring tools remain undecided. Store only reproducible source configuration here; keep credentials, Terraform state, local database volumes, and generated runtime data out of Git. Document the actual startup, deployment, recovery, and shutdown commands alongside the configuration when added.
+
+For Identity's private checks, follow the [network/secret handoff](../services/identity-workspace/docs/private-access-apis.md#gateway-and-infrastructure-handoff). Task and Notification receive distinct keys; only Task may request workspace access. Provision these through private secret storage, keep Identity ports private, and run its boundary verifier from a trusted runner after the real gateway is deployed. That deployment criterion remains open while gateway/cloud infrastructure is absent.

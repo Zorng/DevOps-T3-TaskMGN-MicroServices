@@ -114,3 +114,15 @@ def test_invitation_initialization_failure_closes_resources_and_clears_services(
     database.close.assert_called_once()
     verifier.close.assert_called_once()
     assert app.state.invitations is app.state.memberships is app.state.workspaces is app.state.auth is app.state.database is None
+
+
+def test_invalid_service_key_configuration_fails_startup_without_resource_leak(settings):
+    from pydantic import SecretStr
+    settings = settings.model_copy(update={"task_service_key": SecretStr("T" * 43), "notification_service_key": SecretStr("T" * 43)})
+    database, verifier = Mock(), Mock()
+    app = create_app(settings, database_factory=Mock(return_value=database), google_verifier_factory=Mock(return_value=verifier))
+    with pytest.raises(RuntimeError, match="Identity application startup failed"):
+        with TestClient(app):
+            pytest.fail("Duplicate service keys must fail startup.")
+    database.close.assert_called_once(); verifier.close.assert_called_once()
+    assert app.state.private_identity is app.state.auth is app.state.database is None

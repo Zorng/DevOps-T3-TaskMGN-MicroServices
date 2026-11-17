@@ -132,3 +132,22 @@ def invitation_dependencies(settings):
     store.cancel.return_value = {**body, "status": "cancelled"}
     return SimpleNamespace(settings=settings, store=store, identifier=identifier, workspace_id=workspace_id,
                            owner_id=owner_id, recipient_id=recipient_id, body=body, key=uuid4())
+
+
+@pytest.fixture
+def private_dependencies(settings):
+    import json
+    from pathlib import Path
+    from pydantic import SecretStr
+    from identity_workspace.private_api.store import PrivateIdentityStore
+
+    fixtures = json.loads((Path(__file__).resolve().parents[1] / "fixtures/private-identity.json").read_text())
+    task_key, notification_key = "T" * 43, "N" * 43
+    settings = settings.model_copy(update={"task_service_key": SecretStr(task_key),
+                                           "notification_service_key": SecretStr(notification_key),
+                                           "allowed_origins": ("http://localhost:5173",)})
+    store = Mock(spec=PrivateIdentityStore)
+    store.introspect.return_value = fixtures["cases"][0]["response"]
+    store.workspace_access.return_value = fixtures["cases"][2]["response"]
+    return SimpleNamespace(settings=settings, store=store, task_key=task_key, notification_key=notification_key,
+                           workspace_id=store.workspace_access.return_value["workspace_id"], fixtures=fixtures)

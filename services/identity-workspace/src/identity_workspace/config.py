@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     allowed_origins: tuple[str, ...] = ()
     database_url: SecretStr = Field(repr=False)
     google_client_id: str | None = Field(default=None, repr=False)
+    task_service_key: SecretStr | None = Field(default=None, repr=False)
+    notification_service_key: SecretStr | None = Field(default=None, repr=False)
+    task_service_key_file: Path | None = Field(default=None, repr=False)
+    notification_service_key_file: Path | None = Field(default=None, repr=False)
     google_timeout_seconds: float = Field(default=2.0, gt=0, le=5, allow_inf_nan=False)
     auth_challenge_limit_per_minute: int = Field(default=10, ge=1, le=1000)
     auth_exchange_limit_per_minute: int = Field(default=30, ge=1, le=1000)
@@ -38,6 +42,21 @@ class Settings(BaseSettings):
     db_statement_timeout_ms: int = Field(default=2000, ge=1, le=30000)
     db_pool_size: int = Field(default=5, ge=1, le=20)
     db_max_overflow: int = Field(default=0, ge=0, le=20)
+
+    @field_validator("task_service_key", "notification_service_key", mode="before")
+    @classmethod
+    def validate_service_key(cls, value):
+        if value is None or value == "":
+            return None
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if not isinstance(raw, str) or re.fullmatch(r"[A-Za-z0-9_-]{43,128}", raw) is None:
+            raise ValueError("Must be a high-entropy URL-safe service key of 43–128 characters.")
+        return value
+
+    @field_validator("task_service_key_file", "notification_service_key_file", mode="before")
+    @classmethod
+    def optional_service_key_file(cls, value):
+        return None if value == "" else value
 
     @field_validator("google_client_id", mode="before")
     @classmethod
