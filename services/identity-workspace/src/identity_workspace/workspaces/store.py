@@ -13,8 +13,9 @@ from identity_workspace.auth.service import token_hash
 from identity_workspace.auth.store import database_now, session_actor
 from identity_workspace.errors import APIError
 from identity_workspace.memberships.primitives import initialize_owner
+from identity_workspace.outbox.events import append_event
 from identity_workspace.persistence import (
-    idempotency_records, invitations, memberships, outbox, users, workspace_cursors, workspaces,
+    idempotency_records, invitations, memberships, users, workspace_cursors, workspaces,
 )
 from identity_workspace.workspaces.models import MAX_VERSION, deletion_event, public_workspace, require_match
 
@@ -187,10 +188,7 @@ class WorkspaceStore:
             ).values(status="cancelled", updated_at=now))
             sync_quota(session, actor["id"])
             event = deletion_event(identifier, version, actor, now)
-            session.execute(outbox.insert().values(
-                event_id=UUID(event["id"]), event_type=event["type"], payload=event,
-                created_at=now, next_attempt_at=now,
-            ))
+            append_event(session, event, created_at=now)
 
     def cleanup(self, limit=1000):
         """Bounded expiry cleanup. Never remove lifecycle history or outbox rows."""

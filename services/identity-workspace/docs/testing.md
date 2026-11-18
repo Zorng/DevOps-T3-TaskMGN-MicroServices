@@ -1,6 +1,6 @@
 # Identity & Workspace Test Guide
 
-The scaffold has separate unit, HTTP request, and real PostgreSQL integration suites. Run all three before submitting changes. These commands test the implemented foundation; business API and event delivery tests accompany their later implementation tasks.
+The service has separate unit, HTTP request, and real PostgreSQL/RabbitMQ integration suites. Run all three before submitting changes. Domain endpoint tests verify atomic event insertion and rollback; [lifecycle publisher tests](lifecycle-outbox.md#reproducible-producer-checks) now exercise actual durable routing, confirms, unroutable messages, outages/restarts, fenced claims, duplicate publication and recovery. Owning-consumer effects remain a separate integration gate.
 
 [Google sign-in/session tests](google-signin.md#automated-verification) now cover all four authentication endpoints, offline signature/claim checks, and real database atomicity/concurrency. Pytest blocks the requests HTTP transport by default; tests inject a Google verifier or key-transport double and need no real provider credentials.
 

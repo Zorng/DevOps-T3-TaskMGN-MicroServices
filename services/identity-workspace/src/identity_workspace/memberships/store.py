@@ -1,7 +1,5 @@
 """Membership revocation and its exact-generation event commit together."""
 
-from uuid import UUID
-
 from sqlalchemy import update
 
 from identity_workspace.auth.store import database_now, session_actor
@@ -9,7 +7,8 @@ from identity_workspace.memberships.models import removal_event, require_non_own
 from identity_workspace.memberships.primitives import (
     access_snapshot, active_members, bump_workspace, current_membership, locked_workspace, require_membership,
 )
-from identity_workspace.persistence import memberships, outbox
+from identity_workspace.persistence import memberships
+from identity_workspace.outbox.events import append_event
 
 
 class MembershipStore:
@@ -52,10 +51,7 @@ class MembershipStore:
             memberships.c.id == target["id"], memberships.c.revoked_at.is_(None),
         ).values(revoked_at=now))
         event = removal_event(workspace["id"], target, actor, reason, now)
-        session.execute(outbox.insert().values(
-            event_id=UUID(event["id"]), event_type=event["type"], payload=event,
-            created_at=now, next_attempt_at=now,
-        ))
+        append_event(session, event, created_at=now)
 
     def access_snapshot(self, hashed_token, workspace_id):
         with self.database.transaction() as session:

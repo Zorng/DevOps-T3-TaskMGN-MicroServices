@@ -1,0 +1,67 @@
+# Opt-in RabbitMQ reference adapter; shared/cloud broker selection stays with Infrastructure.
+services:
+  migrate:
+    profiles: ["app", "outbox"]
+
+  broker:
+    profiles: ["outbox"]
+    image: rabbitmq:4.4.1-alpine@sha256:6bf98f3f634a57951103efe3e9ff866b5d8b3faa35cc7be12b2ce052d8367a12
+    hostname: identity-broker
+    secrets:
+      - broker_definitions
+    volumes:
+      - identity-broker:/var/lib/rabbitmq
+      - ./docker/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    # No management/UI listener published. Optional loopback AMQP for integration probes.
+    ports:
+      - "127.0.0.1:${IDENTITY_BROKER_PORT:-5673}:5672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 10s
+      start_period: 10s
+      retries: 30
+    stop_grace_period: 30s
+
+  outbox:
+    profiles: ["outbox"]
+    image: ${IDENTITY_IMAGE:-identity-workspace:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: ${IDENTITY_CONTAINER_ENV_FILE:-./.env.container}
+        required: false
+    environment:
+      IDENTITY_BROKER_URL: ""
+      IDENTITY_BROKER_URL_FILE: /run/secrets/broker_url
+    command: ["python", "-m", "identity_workspace.outbox.worker", "--metrics-host", "0.0.0.0"]
+    secrets:
+      - broker_url
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      broker:
+        condition: service_healthy
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 30s
+    restart: unless-stopped
+    # Worker metrics are private on port 8001. This image's HTTP probe does not apply.
+    healthcheck:
+      disable: true
+
+secrets:
+  broker_definitions:
+    file: ${IDENTITY_BROKER_SECRETS_DIR:-./.secrets}/broker-definitions.json
+  broker_url:
+    file: ${IDENTITY_BROKER_SECRETS_DIR:-./.secrets}/broker-url
+
+volumes:
+  identity-broker:

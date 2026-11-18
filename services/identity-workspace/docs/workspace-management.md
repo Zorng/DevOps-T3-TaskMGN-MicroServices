@@ -143,3 +143,5 @@ Verified on 2026-11-16 with the locked dependencies:
 - actionlint 1.7.12 accepted the workflow; the existing test matrix and required aggregate continue gating image verification and main-only publishing.
 
 These checks do not establish a hosted GitHub Actions result or verify invitation APIs, broker delivery or Task cleanup. No commit, push, PR, registry publication or deployment was performed.
+
+Subsequent confirmed producer delivery is documented in the [lifecycle outbox report](../../../docs/identity-lifecycle-outbox-report.md). Its real-broker checks supersede the earlier producer-only delivery status; actual Task/Notification consumer effects remain a separate demonstration gate.

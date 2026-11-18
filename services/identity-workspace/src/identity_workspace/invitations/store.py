@@ -11,10 +11,11 @@ from sqlalchemy import delete, func, select, text, tuple_, update
 from identity_workspace.auth.service import token_hash
 from identity_workspace.auth.store import database_now, session_actor
 from identity_workspace.errors import APIError
+from identity_workspace.outbox.events import append_event
 from identity_workspace.invitations.models import created_event, public_invitation, transition
 from identity_workspace.memberships.models import require_owner
 from identity_workspace.memberships.primitives import current_membership, join_member, locked_workspace, require_membership
-from identity_workspace.persistence import idempotency_records, invitation_cursors, invitations, outbox, users, workspaces
+from identity_workspace.persistence import idempotency_records, invitation_cursors, invitations, users, workspaces
 
 RETENTION = timedelta(hours=25)
 
@@ -123,8 +124,7 @@ class InvitationStore:
                 status="pending", created_at=now, updated_at=now,
             ))
             event = created_event(identifier, workspace_id, recipient_id, actor, now)
-            session.execute(outbox.insert().values(event_id=UUID(event["id"]), event_type=event["type"],
-                                                  payload=event, created_at=now, next_attempt_at=now))
+            append_event(session, event, created_at=now)
             body = self._public(session, identifier)
             saved_at = database_now(session)
             session.execute(idempotency_records.insert().values(

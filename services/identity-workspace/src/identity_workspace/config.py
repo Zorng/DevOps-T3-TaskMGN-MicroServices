@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     db_statement_timeout_ms: int = Field(default=2000, ge=1, le=30000)
     db_pool_size: int = Field(default=5, ge=1, le=20)
     db_max_overflow: int = Field(default=0, ge=0, le=20)
+    broker_url: SecretStr | None = Field(default=None, repr=False)
+    broker_url_file: Path | None = Field(default=None, repr=False)
+    broker_exchange: str = Field(default="identity.lifecycle.v1", pattern=r"^[a-z][a-z0-9_.-]{0,127}$")
+
+    @field_validator("broker_url", "broker_url_file", mode="before")
+    @classmethod
+    def optional_broker_setting(cls, value):
+        return None if value == "" else value
 
     @field_validator("task_service_key", "notification_service_key", mode="before")
     @classmethod

@@ -142,3 +142,5 @@ Verified on 2026-11-17 with unchanged locked dependencies:
 - actionlint 1.7.12, dependency consistency and local Markdown links passed. Git candidate files contained no matches for ignored local database passwords; environment/secrets/tools/reports remained ignored.
 
 Temporary test containers/networks/volumes were removed; regular local containers and databases were not upgraded or restarted. Nothing was committed, pushed, published or deployed. Hosted CI and final broker/Notification/Task consumer delivery remain unverified until their separate runs/integration.
+
+Subsequent confirmed producer delivery is documented in the [lifecycle outbox report](../../../docs/identity-lifecycle-outbox-report.md). Its real-broker checks supersede the earlier producer-only delivery status; actual Task/Notification consumer effects remain a separate demonstration gate.
