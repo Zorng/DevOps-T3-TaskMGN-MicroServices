@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from setup_local_db import main as setup_database
 from setup_service_keys import main as setup_service_keys
+from setup_broker import setup as setup_broker
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -128,6 +129,7 @@ def smoke(image, skip_build, report):
             (directory / ".env.example").write_bytes((SERVICE_ROOT / ".env.example").read_bytes())
             setup_database(directory)
             setup_service_keys(directory)
+            setup_broker(directory / ".secrets")
             config = directory / ".env.container"
             config.write_text(
                 config.read_text(encoding="utf-8").replace("IDENTITY_LOG_LEVEL=INFO", "IDENTITY_LOG_LEVEL=DEBUG"),
@@ -144,13 +146,15 @@ def smoke(image, skip_build, report):
                 IDENTITY_CONTAINER_ENV_FILE=str(config),
                 IDENTITY_DB_SECRETS_DIR=str(directory / ".secrets"),
                 IDENTITY_SERVICE_KEYS_DIR=str(directory / ".secrets"),
+                IDENTITY_BROKER_SECRETS_DIR=str(directory / ".secrets"), IDENTITY_BROKER_PORT="0",
                 COMPOSE_PROFILES="",
             )
             docker = Docker(environment, [
                 "compose", "--file", str(SERVICE_ROOT / "compose.yaml"),
                 "--file", str(SERVICE_ROOT / "compose.private.yaml"),
+                "--file", str(SERVICE_ROOT / "compose.outbox.yaml"),
                 "--project-name", f"identity-smoke-{uuid4().hex[:12]}",
-                "--env-file", str(compose_env), "--profile", "app",
+                "--env-file", str(compose_env), "--profile", "app", "--profile", "outbox",
             ])
             docker.secrets = tuple(
                 (directory / ".secrets" / file).read_text(encoding="utf-8").strip()
@@ -158,6 +162,8 @@ def smoke(image, skip_build, report):
             )
             task_key = (directory / ".secrets/task-service-key").read_text().strip()
             notification_key = (directory / ".secrets/notification-service-key").read_text().strip()
+            broker_url = (directory / ".secrets/broker-url").read_text().strip()
+            docker.secrets = (*docker.secrets, broker_url, broker_url.split(":", 2)[2].split("@", 1)[0])
             docker.compose("config", "--quiet")
             if not skip_build:
                 print("Building the locked service image...", flush=True)
@@ -185,7 +191,7 @@ def smoke(image, skip_build, report):
                     "installed = {d.metadata['Name'].lower() for d in m.distributions()}",
                     "private = ['.env', '.env.container', '.secrets', '.tools', '.uv-cache', 'tests']",
                     "print(json.dumps({'uid': os.geteuid(), 'gid': os.getegid(), 'python': sys.version.split()[0],",
-                    " 'development_packages': sorted(installed & {'pytest', 'httpx2', 'jsonschema', 'uv', 'uv-build'}),",
+                    " 'development_packages': sorted(installed & {'pytest', 'httpx2', 'uv', 'uv-build'}),",
                     " 'private_paths': [p for p in private if (pathlib.Path('/app') / p).exists()],",
                     " 'uv_binary': shutil.which('uv')}))",
                 ])))
@@ -388,6 +394,39 @@ def smoke(image, skip_build, report):
                     "invitation_states": ["accepted", "accepted", "cancelled", "cancelled", "declined"],
                 }, "Generation-specific removal/deletion outbox state differs.")
                 record("Authenticated workspace create/retry/list/read/rename/delete, preconditions, quota release, and durable deletion event verified without a broker")
+                # Run the same image as a separate non-root worker, initially
+                # without a broker. No HTTP mutation waits for publication.
+                docker.compose("up", "--detach", "--no-build", "--no-deps", "outbox")
+                worker_id = docker.compose("ps", "--quiet", "outbox")
+                require(docker.run("inspect", "--format", "{{.Config.User}}", worker_id) == "10001:10001", "Worker must be non-root.")
+                require(docker.run("inspect", "--format", "{{.HostConfig.ReadonlyRootfs}}", worker_id) == "true", "Worker filesystem must be read-only.")
+                metrics_probe = "\n".join([
+                    "import time, urllib.request",
+                    "deadline = time.monotonic() + 90",
+                    "while True:",
+                    " try:",
+                    "  text = urllib.request.urlopen('http://127.0.0.1:8001/metrics', timeout=2).read().decode()",
+                    "  if EXPECTED in text: print(text); break",
+                    " except OSError: pass",
+                    " if time.monotonic() > deadline: raise SystemExit('Worker metric did not reach expected state')",
+                    " time.sleep(0.5)",
+                ])
+                failed_metrics = docker.compose("exec", "--no-TTY", "outbox", "python", "-c", metrics_probe.replace("EXPECTED", repr('identity_outbox_publish_failures_total{reason="broker_unavailable"}')))
+                health(base_url, 200)
+                require("identity_outbox_published_total 0.0" in failed_metrics, "Outage incorrectly marked an event published.")
+                record("Non-root outbox worker retries broker outage while HTTP readiness remains 200")
+                docker.compose("up", "--detach", "--wait", "--wait-timeout", "100", "broker")
+                delivered_metrics = docker.compose("exec", "--no-TTY", "outbox", "python", "-c", metrics_probe.replace("EXPECTED", repr("identity_outbox_pending 0.0")))
+                require("identity_outbox_published_total 8.0" in delivered_metrics, "Recovery did not confirm all lifecycle events.")
+                require("identity_outbox_pending 0.0" in delivered_metrics, "Recovery left pending lifecycle events.")
+                counts = docker.compose("exec", "--no-TTY", "broker", "rabbitmqctl", "list_queues", "--vhost", "identity", "name", "messages_ready", "--quiet")
+                actual_counts = dict(line.split() for line in counts.splitlines() if len(line.split()) == 2)
+                require(actual_counts.get("notifications.v1") == "5" and actual_counts.get("task-cleanup.v1") == "3", "Lifecycle events did not reach their durable logical queues.")
+                require(not any(secret in failed_metrics + delivered_metrics for secret in docker.secrets), "Worker metrics contain credentials.")
+                results["lifecycle_delivery"] = {"confirmed": 8, "notifications_queue": 5, "cleanup_queue": 3, "owning_consumers": "not_implemented_handoff_prepared"}
+                record("All eight delayed lifecycle events confirmed and routed; pending count recovers to zero")
+                docker.compose("stop", "--timeout", "30", "outbox")
+                require(docker.run("inspect", "--format", "{{.State.ExitCode}}", worker_id) == "0", "Outbox worker did not stop cleanly.")
                 credential = f"synthetic-smoke-secret-{uuid4().hex}"
                 _, error_body = request(base_url, f"/missing/{credential}", 404)
                 _, query_error = request(base_url, f"/health/live?credential={credential}", 400)
@@ -410,12 +449,13 @@ def smoke(image, skip_build, report):
                 # Require completed cleanup below as well as the expected exit;
                 # a forced SIGKILL (137), OOM, or shutdown error must fail.
                 require(stopped["ExitCode"] in {0, 143} and not stopped["OOMKilled"] and not stopped["Error"], "Application did not stop cleanly.")
-                logs = docker.compose("logs", "--no-color", "--no-log-prefix", "identity", "migrate")
+                logs = docker.compose("logs", "--no-color", "--no-log-prefix", "identity", "migrate", "outbox")
                 require(not any(secret in logs for secret in (*docker.secrets, credential, google_probe)), "Container logs contain sensitive input.")
                 require(credential not in outage_metrics + recovered_metrics, "Metrics contain sensitive input.")
                 events = [json.loads(line) for line in logs.splitlines() if line.startswith("{")]
                 event_names = {item.get("event") for item in events}
                 require({"application_started", "application_stopped", "http_request_completed"} <= event_names, "Structured lifecycle/request logs are missing.")
+                require({"outbox_published", "outbox_publish_failed"} <= event_names, "Structured outbox delivery logs are missing.")
                 require("application_shutdown_failed" not in event_names and "Application shutdown complete." in logs, "Application shutdown cleanup did not complete.")
                 record("DEBUG application logs and metrics exclude credentials; SIGTERM completes application cleanup")
             finally:

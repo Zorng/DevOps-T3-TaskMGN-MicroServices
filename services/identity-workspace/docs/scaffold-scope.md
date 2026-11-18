@@ -8,4 +8,6 @@ Status: planning, dependency setup, configuration, application lifecycle, Postgr
 
 Related planning documents: [Stack decisions](stack-decisions.md), [Contract requirements](contract-requirements.md).
 
+The [lifecycle publisher](lifecycle-outbox.md) now implements confirmed/routing-accepted broker delivery, indefinite retry, crash recovery and metrics. Earlier feature guides record their original completion evidence; broker publication is now verified separately in the [outbox report](../../../docs/identity-lifecycle-outbox-report.md). Owning Notification/Task consumer effects and deployed gateway isolation still require their implementations.
+
 The [test guide](testing.md) collects suite commands, coverage, database isolation, and empty-suite failure checks in one place. The original service README is retained.

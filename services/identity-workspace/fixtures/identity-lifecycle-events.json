@@ -1,0 +1,93 @@
+{
+  "format_version": 1,
+  "purpose": "Synthetic owning-consumer handoff; not proof of consumer implementation",
+  "events": {
+    "invitation.created.v1": {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "type": "invitation.created.v1",
+      "schema_version": 1,
+      "producer": "identity-workspace",
+      "occurred_at": "2026-11-14T10:00:00Z",
+      "request_id": "00000000-0000-4000-8000-000000000012",
+      "aggregate_id": "00000000-0000-4000-8000-000000000008",
+      "aggregate_version": 1,
+      "data": {
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "actor": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "invitation_id": "00000000-0000-4000-8000-000000000008",
+        "recipient_id": "00000000-0000-4000-8000-000000000002"
+      }
+    },
+    "workspace.member_removed.v1": {
+      "id": "00000000-0000-4000-8000-000000000104",
+      "type": "workspace.member_removed.v1",
+      "schema_version": 1,
+      "producer": "identity-workspace",
+      "occurred_at": "2026-11-14T10:00:00Z",
+      "request_id": "00000000-0000-4000-8000-000000000012",
+      "aggregate_id": "00000000-0000-4000-8000-000000000010",
+      "aggregate_version": 2,
+      "data": {
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "actor": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        },
+        "user_id": "00000000-0000-4000-8000-000000000002",
+        "membership_id": "00000000-0000-4000-8000-000000000010",
+        "reason": "removed"
+      }
+    },
+    "workspace.deleted.v1": {
+      "id": "00000000-0000-4000-8000-000000000105",
+      "type": "workspace.deleted.v1",
+      "schema_version": 1,
+      "producer": "identity-workspace",
+      "occurred_at": "2026-11-14T10:00:00Z",
+      "request_id": "00000000-0000-4000-8000-000000000012",
+      "aggregate_id": "00000000-0000-4000-8000-000000000003",
+      "aggregate_version": 3,
+      "data": {
+        "workspace_id": "00000000-0000-4000-8000-000000000003",
+        "actor": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "display_name": "Example Owner"
+        }
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "name": "invitation-delayed-duplicate",
+      "consumer": "notification",
+      "event_sequence": [
+        "invitation.created.v1",
+        "invitation.created.v1"
+      ],
+      "expected": "One historical notification per (event_id, recipient_id), read_at null. A changed invitation state does not grant target access."
+    },
+    {
+      "name": "old-removal-after-rejoin",
+      "consumer": "task",
+      "event_sequence": [
+        "workspace.member_removed.v1",
+        "workspace.member_removed.v1"
+      ],
+      "new_membership_id": "cf71137c-e6fa-41e5-a082-6f767048d2a3",
+      "expected": "Clear assignments matching data.membership_id only. New-generation assignment survives; duplicate effect is suppressed."
+    },
+    {
+      "name": "workspace-deletion-before-old-removal",
+      "consumer": "task",
+      "event_sequence": [
+        "workspace.deleted.v1",
+        "workspace.member_removed.v1",
+        "workspace.deleted.v1"
+      ],
+      "expected": "Workspace stays inaccessible; terminal tombstone prevents in-flight resurrection. Duplicate cleanup is harmless."
+    }
+  ]
+}

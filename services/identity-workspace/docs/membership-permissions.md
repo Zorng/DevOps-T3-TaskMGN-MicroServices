@@ -126,3 +126,5 @@ Verified on 2026-11-17 with the unchanged locked dependencies:
 - Git candidate files contained no matches for ignored local database passwords. Environment files, secrets, temporary tools and reports remained ignored.
 
 All disposable test containers/networks/volumes were removed. Regular local application/database containers were not upgraded or restarted. No commit, push, PR, registry publication or deployment was performed. Hosted CI and lifecycle publisher/Task consumer integration remain separate verification steps.
+
+Subsequent confirmed producer delivery is documented in the [lifecycle outbox report](../../../docs/identity-lifecycle-outbox-report.md). Its real-broker checks supersede the earlier producer-only delivery status; actual Task/Notification consumer effects remain a separate demonstration gate.

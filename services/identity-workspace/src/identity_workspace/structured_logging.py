@@ -15,6 +15,7 @@ EVENTS = {
     "http_request_completed", "http_request_disconnected", "readiness_checked",
     "application_started", "application_stopped", "application_startup_failed",
     "application_shutdown_failed", "application_event",
+    "outbox_published", "outbox_publish_failed", "outbox_backlog_old", "outbox_storage_failed",
 }
 ERROR_CATEGORIES = {
     "invalid_request", "authentication_required", "forbidden", "not_found",
@@ -22,6 +23,7 @@ ERROR_CATEGORIES = {
     "validation_failed", "rate_limited", "internal_error", "dependency_unavailable",
     "storage_unavailable", "startup_failed", "shutdown_failed", "response_failed",
     "client_disconnected", "request_rejected",
+    "unroutable", "nack", "broker_unavailable", "invalid_event",
 }
 LEVELS = {name: getattr(logging, name) for name in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")}
 
@@ -52,6 +54,15 @@ class SafeJSONFormatter(logging.Formatter):
 
     def safe_fields(self, fields: dict) -> dict:
         result = {"request_id": safe_uuid(fields.get("request_id"))}
+        event_id = safe_uuid(fields.get("event_id"))
+        if event_id is not None:
+            result["event_id"] = event_id
+        event_type = fields.get("event_type")
+        if isinstance(event_type, str) and event_type in {"invitation.created.v1", "workspace.member_removed.v1", "workspace.deleted.v1"}:
+            result["event_type"] = event_type
+        attempt = fields.get("attempt")
+        if type(attempt) is int and 1 <= attempt <= 2147483647:
+            result["attempt"] = attempt
         if "method" in fields:
             result["method"] = safe_method(fields["method"])
         if "route" in fields:

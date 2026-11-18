@@ -1,6 +1,6 @@
 # Identity & Workspace Service
 
-Status: FastAPI foundation, Google sign-in/application sessions, workspace management, membership permissions, registered-user invitations and private identity/access endpoints are implemented. Invitation creation and workspace/membership revocations persist real transactional lifecycle events. Broker delivery and consumer integration remain follow-up tasks. Public-gateway isolation awaits the gateway implementation; see [private API setup and deployment verification](docs/private-access-apis.md).
+Status: FastAPI foundation, Google sign-in/application sessions, workspace management, membership permissions, registered-user invitations, private identity/access endpoints and reliable lifecycle publication are implemented. A separate outbox worker delivers committed events with confirms, routing acceptance and durable retries. RabbitMQ is an opt-in reference/test adapter; Infrastructure owns shared broker deployment. Notification and Task consumers are not available yet, so their final integration demonstration remains open. Public-gateway isolation also awaits the gateway implementation; see [private API setup and deployment verification](docs/private-access-apis.md).
 
 Runtime: Python 3.13.16, FastAPI 0.163.0, PostgreSQL 18.7, SQLAlchemy 2, Psycopg 3, Alembic, and uv 0.13.8. Exact dependencies are locked in [uv.lock](uv.lock); see [stack decisions](docs/stack-decisions.md).
 
@@ -114,6 +114,23 @@ if ($LASTEXITCODE -ne 0) { throw "Private API startup failed." }
 
 No new dependencies or migration are needed; head remains `0005_registered_invitations`. Existing public-only setup still works with private callers disabled until their keys are configured. See [secret configuration/rotation, consumer fixtures and deployment verification](docs/private-access-apis.md). **The gateway does not exist yet, so public-route isolation is an open acceptance check.** Local private API tests do not prove deployed gateway routing.
 
+## Lifecycle publisher setup
+
+From this directory, after the database/service setup above:
+
+```powershell
+& $identityUv run --locked python scripts/setup_broker.py
+if ($LASTEXITCODE -ne 0) { throw "Broker configuration failed." }
+docker compose -f compose.yaml -f compose.outbox.yaml --profile app --profile outbox build identity outbox
+if ($LASTEXITCODE -ne 0) { throw "Image build failed." }
+docker compose -f compose.yaml -f compose.outbox.yaml --profile app --profile outbox up --detach --no-build --wait --wait-timeout 120 identity outbox
+if ($LASTEXITCODE -ne 0) { throw "Publisher startup failed." }
+```
+
+This generates ignored local broker secrets, provisions durable logical queues and starts a separate worker using the same non-root service image. Keep `-f compose.private.yaml` in the commands too if you already use private service keys. Broker failure leaves committed operations successful and events pending; readiness continues to check writable PostgreSQL. Migration head remains `0005_registered_invitations`; existing lease/retry columns are sufficient, so no migration is needed.
+
+See [broker configuration, retry/recovery, metrics and reproducible checks](docs/lifecycle-outbox.md), the [technical report](../../docs/identity-lifecycle-outbox-report.md), and the [demo/consumer handoff](../../docs/identity-lifecycle-outbox-demo.md). CI uses generated test credentials, Google doubles and disposable PostgreSQL/RabbitMQ; no production secrets are required.
+
 ## Test and CI commands
 
 ```powershell
@@ -127,7 +144,7 @@ if ($LASTEXITCODE -ne 0) { throw "Integration tests failed." }
 if ($LASTEXITCODE -ne 0) { throw "Container smoke test failed." }
 ```
 
-Unit/request tests use controlled collaborators; integration tests use real disposable PostgreSQL and Google verification doubles. Provider-adapter tests verify real RSA signatures with ephemeral test keys and a mocked key transport. Pytest blocks real requests HTTP calls, so no Google credentials or live Google connection enter CI. All suites must be nonempty and successful, with no skipped tests. See [test details](docs/testing.md) and [CI gates/report artifacts](docs/ci.md).
+Unit/request tests use controlled collaborators; integration tests use real disposable PostgreSQL/RabbitMQ and Google verification doubles. Producer checks include unroutable messages, broker restart/outage recovery, lease fencing and duplicate redelivery. Provider-adapter tests verify real RSA signatures with ephemeral test keys and a mocked key transport. Pytest blocks real requests HTTP calls, so no Google credentials or live Google connection enter CI. All suites must be nonempty and successful, with no skipped tests. See [test details](docs/testing.md) and [CI gates/report artifacts](docs/ci.md).
 
 The [container guide](docs/container.md) documents build/run/stop commands and smoke checks. Expired/revoked authentication rows can be removed in bounded batches using `python -m identity_workspace.auth.cleanup --limit 1000` in the configured runtime; [authentication maintenance](docs/google-signin.md#maintenance) documents the Docker/uv commands.
 

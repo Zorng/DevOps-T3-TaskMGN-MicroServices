@@ -120,3 +120,5 @@ Verified on 2026-11-15 with Docker Desktop's Linux/amd64 engine:
 The original README is retained. The [CI guide](ci.md) documents Step 12's test/build/publishing gates and hosted verification steps; local results do not establish a passing remote pipeline.
 
 Related documents: [test guide](testing.md), [database setup](database-setup.md), [application startup](application-startup.md), and [stack decisions](stack-decisions.md).
+
+Subsequent confirmed producer delivery is documented in the [lifecycle outbox report](../../../docs/identity-lifecycle-outbox-report.md). Its real-broker checks supersede the earlier producer-only delivery status; actual Task/Notification consumer effects remain a separate demonstration gate.

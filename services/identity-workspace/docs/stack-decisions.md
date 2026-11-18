@@ -21,6 +21,9 @@ Python + FastAPI is confirmed by the scaffold task; PostgreSQL 18.7 is the selec
 | Google Auth | 2.62.2, requests extra | Supported Google OAuth ID-token signature/issuer/audience/time verification |
 | CacheControl | 0.14.4 | HTTP-header-aware public verification-key caching |
 | email-validator | 2.4.0 | Provider email format validation without DNS/deliverability lookups |
+| Pika | 1.4.4 | RabbitMQ reference adapter with mandatory routing and publisher confirms |
+| jsonschema | 4.26.0, format extra | Runtime validation of lifecycle events against the bundled shared schema |
+| RabbitMQ | 4.4.1 Alpine, digest pinned | Opt-in test/reference broker; shared deployment selection belongs to Infrastructure |
 
 The [FastAPI release notes](https://fastapi.tiangolo.com/release-notes/#01630-2026-11-14) document the selected framework release. See [SQLAlchemy's Psycopg integration](https://docs.sqlalchemy.org/en/21/dialects/postgresql.html#module-sqlalchemy.dialects.postgresql.psycopg), [Alembic documentation](https://alembic.sqlalchemy.org/en/latest/), and [uv locking guidance](https://docs.astral.sh/uv/concepts/projects/sync/) for the supporting tooling. The versions above are resolved in [uv.lock](../uv.lock). Step 5 selects HTTPX2 because [Starlette's current test client](https://starlette.dev/testclient/) deprecates plain HTTPX. Locked installation, dependency consistency, imports, unit/request tests, real PostgreSQL 18.7 integration tests, and [health endpoints](health-probes.md) are verified with the Windows application environment. Step 11 verifies the [service image](container.md) on Linux/amd64; ARM64 application execution remains unverified.
 
@@ -38,7 +41,7 @@ Use synchronous SQLAlchemy with Psycopg 3 initially, with database-backed HTTP h
 
 Alembic owns schema migrations; `create_all()` will not replace versioned migrations. Run migrations explicitly before starting the application rather than having each application worker modify the schema. Keep the migration history and database configuration within this service. Do not create tables for other services.
 
-The initial migration establishes the service persistence foundation. Later business changes and their outbox records must share one local database transaction. Broker publishing remains a subsequent task, and broker availability alone must not determine readiness while pending events can safely persist.
+Domain changes and their immutable outbox records share one local database transaction. The [separate lifecycle publisher](lifecycle-outbox.md) uses existing retry columns for fenced leases; head remains `0005_registered_invitations`. It publishes after commit and checks broker confirms/routing acceptance. Broker availability alone does not determine readiness while pending events can safely persist.
 
 Local Compose and disposable database integration tests use PostgreSQL 18.7. Local database access is bound to localhost, credentials are supplied through ignored files, and Identity has a dedicated database/user/volume. See [database setup](database-setup.md) for the verified migrations and integration commands. The Task service can retain its independently selected PostgreSQL version.
 
