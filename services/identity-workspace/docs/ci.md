@@ -54,6 +54,8 @@ Integration tests create their own PostgreSQL 18.7 and opt-in RabbitMQ 4.4.1 ins
 
 ## Reports and tested image transfer
 
+The lifecycle smoke check verifies actual broker receipts against the committed outbox rather than requiring a single queue-counter snapshot to equal 5/3. Its bounded one-off probe validates eight unique IDs, payloads, persistent headers and routes, permits unchanged duplicates, and records safe receipt counts in the JSON artifact. The probe consumes only its uniquely named disposable project's queues. This avoids treating a delayed observation or valid at-least-once duplicate as missing delivery; genuine missing/corrupt/misrouted events still fail the existing required check and publishing gate.
+
 Suite reports are uploaded even if tests fail, under `identity-unit-tests`, `identity-request-tests`, and `identity-integration-tests`. `identity-container-smoke` contains the JSON smoke result. Missing reports fail their upload step. Reports are retained for seven days and replaced on a rerun of the same workflow.
 
 After successful main-branch container verification, the image is saved as a compressed Docker archive with a SHA-256 checksum. `identity-tested-image` is retained for one day. The publishing job downloads that artifact, verifies the checksum, and loads the image. It does not rebuild a different image before publishing. Pull-request/manual runs do not create the image-transfer artifact.
