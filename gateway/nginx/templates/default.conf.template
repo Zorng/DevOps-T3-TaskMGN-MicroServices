@@ -1,0 +1,80 @@
+# API gateway: public entry point for /api/v1.
+# Rendered at container start: ${...} placeholders are filled from environment
+# variables (see ../../.env.example). Nginx's own $variables are left untouched.
+#
+# Implements the route table in api_contracts/gateway-routing.md and the header
+# rules in api_contracts/authentication.md. Throttling, CORS, upstream-failure
+# mapping (503 + Retry-After) and metrics are tracked in issue #29 / #34.
+
+# Nginx's request ID is 32 hex characters; the contract wants a dashed UUID.
+map $request_id $request_uuid {
+    "~^(?<u1>[0-9a-f]{8})(?<u2>[0-9a-f]{4})(?<u3>[0-9a-f]{4})(?<u4>[0-9a-f]{4})(?<u5>[0-9a-f]{12})$" "$u1-$u2-$u3-$u4-$u5";
+}
+
+server {
+    listen 8080;
+    server_tokens off;
+    default_type application/json;
+
+    # Contract: 64 KiB request-body bound; 10 s upstream timeout; no auto-retry.
+    client_max_body_size 64k;
+    proxy_http_version 1.1;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 10s;
+    proxy_read_timeout 10s;
+    proxy_next_upstream off;
+
+    # Forwarded unchanged: method, path, query, body, Authorization,
+    # Idempotency-Key, If-Match. Set a request ID for correlation.
+    proxy_set_header Host $host;
+    proxy_set_header X-Request-ID $request_uuid;
+    add_header X-Request-ID $request_uuid always;
+
+    # Strip client-supplied service credentials and identity assertions
+    # (an empty value removes the header from the upstream request).
+    proxy_set_header X-Service-Key "";
+    proxy_set_header X-User-ID "";
+    proxy_set_header X-User-Role "";
+    proxy_set_header X-User-Email "";
+    proxy_set_header X-Actor-Role "";
+
+    error_page 413 @payload_too_large;
+
+    # Gateway's own liveness probe (not a business route, not proxied).
+    location = /healthz {
+        default_type application/json;
+        return 200 '{"status":"ok"}';
+    }
+
+    # ---- Task: boards and tasks under a workspace (listed first on purpose;
+    # the identity workspace rules below are exact so they cannot swallow these).
+    location ~ ^/api/v1/workspaces/[^/]+/(boards|tasks)(/.*)?$ {
+        proxy_pass ${TASK_UPSTREAM};
+    }
+
+    # ---- Identity & Workspace
+    location ~ ^/api/v1/(auth/.+|me|invitations(/.*)?)$ {
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces(/[^/]+)?$ {
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces/[^/]+/(members(/.*)?|membership|invitations(/.*)?)$ {
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+
+    # ---- Notification
+    location ~ ^/api/v1/notifications(/.*)?$ {
+        proxy_pass ${NOTIFICATION_UPSTREAM};
+    }
+
+    # Everything else (including /internal/**, metrics, health of services):
+    # never forwarded. Shared error envelope.
+    location / {
+        return 404 '{"error":{"code":"NOT_FOUND","message":"The requested resource was not found.","request_id":"$request_uuid","details":[]}}';
+    }
+
+    location @payload_too_large {
+        return 413 '{"error":{"code":"PAYLOAD_TOO_LARGE","message":"The request body is too large.","request_id":"$request_uuid","details":[]}}';
+    }
+}
