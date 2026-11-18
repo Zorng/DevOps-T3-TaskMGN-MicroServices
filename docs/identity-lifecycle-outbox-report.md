@@ -49,6 +49,20 @@ Shared contract validation passed: 4 OpenAPI documents, 41 operations, 43 fixtur
 
 Integration tests were driven from Windows against actual Linux database/broker containers; Linux unit/request execution does not claim a hosted Ubuntu integration run. Hosted GitHub Actions execution, registry publication, cloud deployment, ARM64 execution and the previously pending public-gateway isolation check are not claimed by this report.
 
+## CI smoke follow-up: actual receipts instead of queue snapshots
+
+On 2026-11-18 the user supplied a failing hosted smoke log: all domain/readiness and broker-outage checks passed, then `Lifecycle events did not reach their durable logical queues` failed. The aggregate required check consequently failed and blocked publishing as intended. The assertion read `rabbitmqctl list_queues ... messages_ready` once and required raw counts exactly 5/3. It did not record the observed counts. The original assertion passed in a local reproduction with counts 5/3, so the precise hosted trigger is unconfirmed; a single snapshot and strict raw counts are fragile under asynchronous observation and valid duplicate delivery.
+
+Branch `fix/identity-workspace/outbox-smoke-delivery` replaces that assertion with a bounded actual-receipt probe. It matches every expected committed event ID, canonical payload, persistent message property, correlation ID and logical queue. Identical duplicates are counted and accepted; missing, unknown, changed or misrouted events fail. The running publisher keeps only its producer credential. A separate one-off container receives the disposable read-only probe secret and acknowledges validated messages. Every smoke run deliberately republishes one unchanged invitation event so duplicate handling is exercised deterministically. This remains producer-delivery evidence, not an application consumer implementation.
+
+Follow-up verification:
+
+- Windows unit suite: 536 passed, including 12 new probe regression cases; JUnit guard passed.
+- Isolated Linux Python 3.13.16: 536 unit and 404 request tests passed; both guards and dependency consistency passed.
+- Full container smoke passed against real Linux PostgreSQL/RabbitMQ: 8 confirmed outbox events, 5 unique invitation receipts, 3 unique cleanup receipts, 9 deliveries including 1 unchanged duplicate, pending count 0; outage/recovery, private/public operations and shutdown checks also passed.
+- Sanitized local evidence: ignored `test-results/outbox-delivery-fix-smoke.json`. The existing hosted smoke step automatically uses the corrected script and will upload its usual `container-smoke.json` artifact after the follow-up PR is pushed. No hosted success is claimed yet.
+- Development service/database remained healthy and untouched by the uniquely named disposable projects.
+
 ## Review/demo handoff
 
 - Review atomicity and event aggregate semantics with Identity owners.

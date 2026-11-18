@@ -419,12 +419,39 @@ def smoke(image, skip_build, report):
                 delivered_metrics = docker.compose("exec", "--no-TTY", "outbox", "python", "-c", metrics_probe.replace("EXPECTED", repr("identity_outbox_pending 0.0")))
                 require("identity_outbox_published_total 8.0" in delivered_metrics, "Recovery did not confirm all lifecycle events.")
                 require("identity_outbox_pending 0.0" in delivered_metrics, "Recovery left pending lifecycle events.")
-                counts = docker.compose("exec", "--no-TTY", "broker", "rabbitmqctl", "list_queues", "--vhost", "identity", "name", "messages_ready", "--quiet")
-                actual_counts = dict(line.split() for line in counts.splitlines() if len(line.split()) == 2)
-                require(actual_counts.get("notifications.v1") == "5" and actual_counts.get("task-cleanup.v1") == "3", "Lifecycle events did not reach their durable logical queues.")
+                # Deterministically exercise the contract's confirm-before-mark
+                # crash-window outcome: replay one saved ID/payload unchanged.
+                docker.compose("exec", "--no-TTY", "outbox", "python", "-c", "\n".join([
+                    "from sqlalchemy import select",
+                    "from identity_workspace.config import load_settings",
+                    "from identity_workspace.database import create_database",
+                    "from identity_workspace.outbox.broker import RabbitPublisher",
+                    "from identity_workspace.outbox.events import encode_event",
+                    "from identity_workspace.persistence import outbox",
+                    "settings = load_settings()",
+                    "db = create_database(settings)",
+                    "try:",
+                    " with db.transaction() as session:",
+                    "  payload = session.scalar(select(outbox.c.payload).where(outbox.c.event_type == 'invitation.created.v1').order_by(outbox.c.event_id).limit(1))",
+                    " RabbitPublisher(settings).publish(payload, encode_event(payload))",
+                    "finally: db.close()",
+                ]))
+                # Queue counters are a snapshot and exact raw counts reject
+                # valid at-least-once duplicates. Receive the actual messages
+                # in a separate disposable probe and match all eight event IDs,
+                # canonical payloads, persistent headers and logical routes.
+                probe = json.loads(docker.compose(
+                    "run", "--rm", "--no-deps", "--no-TTY", "--entrypoint", "python",
+                    "--volume", f"{directory / '.secrets/broker-probe-url'}:/run/secrets/identity_broker_probe_url:ro",
+                    "outbox", "-c", (SERVICE_ROOT / "scripts/verify_broker_delivery.py").read_text(encoding="utf-8"),
+                ))
+                require(probe.get("status") == "passed" and probe.get("unique_notifications") == 5
+                        and probe.get("unique_cleanup") == 3, "Broker probe did not verify all expected lifecycle events.")
+                require(probe.get("duplicate_deliveries", 0) >= 1, "Broker probe did not observe the deliberate stable-ID duplicate.")
                 require(not any(secret in failed_metrics + delivered_metrics for secret in docker.secrets), "Worker metrics contain credentials.")
                 results["lifecycle_delivery"] = {"confirmed": 8, "notifications_queue": 5, "cleanup_queue": 3, "owning_consumers": "not_implemented_handoff_prepared"}
-                record("All eight delayed lifecycle events confirmed and routed; pending count recovers to zero")
+                results["lifecycle_delivery"]["broker_probe"] = probe
+                record("All eight delayed lifecycle event IDs, payloads and routes verified by receipt, including a stable-ID duplicate; pending count zero")
                 docker.compose("stop", "--timeout", "30", "outbox")
                 require(docker.run("inspect", "--format", "{{.State.ExitCode}}", worker_id) == "0", "Outbox worker did not stop cleanly.")
                 credential = f"synthetic-smoke-secret-{uuid4().hex}"
