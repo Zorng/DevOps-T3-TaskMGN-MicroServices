@@ -10,10 +10,16 @@ BASE = os.environ.get("GATEWAY_URL", "http://localhost:8080")
 COMPOSE_FILE = os.path.join(os.path.dirname(__file__), "..", "compose.test.yaml")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 WS = "11111111-1111-4111-8111-111111111111"
+# The frontend dev origin the gateway allows by default (see CORS_ALLOWED_ORIGINS).
+ORIGIN = "http://localhost:5173"
 
 
-def call(method, path, **kwargs):
-    return requests.request(method, BASE + path, timeout=10, **kwargs)
+def call(method, path, origin=ORIGIN, **kwargs):
+    """Send a request. Browser requests carry an Origin; pass origin=None to omit it."""
+    headers = dict(kwargs.pop("headers", {}))
+    if origin is not None:
+        headers.setdefault("Origin", origin)
+    return requests.request(method, BASE + path, timeout=10, headers=headers, **kwargs)
 
 
 def compose(*args):
@@ -143,6 +149,87 @@ def test_unsupported_method_returns_405_with_allow_header(method, path, allow):
     assert err["code"] == "METHOD_NOT_ALLOWED"
     assert err["request_id"] == r.headers["X-Request-ID"]
     assert err["details"] == []
+
+
+def test_allowed_origin_gets_cors_headers_on_normal_responses():
+    r = call("GET", "/api/v1/me")
+    assert r.status_code == 200
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+    assert "Origin" in r.headers["Vary"]
+    exposed = r.headers["Access-Control-Expose-Headers"]
+    for name in ("ETag", "X-Request-ID", "Retry-After"):
+        assert name in exposed
+
+
+def test_unlisted_origin_gets_no_cors_headers_but_is_not_blocked():
+    r = call("GET", "/api/v1/me", origin="https://evil.example")
+    assert r.status_code == 200
+    assert "Access-Control-Allow-Origin" not in r.headers
+    assert "Access-Control-Expose-Headers" not in r.headers
+
+
+def test_request_without_origin_gets_no_cors_headers():
+    r = call("GET", "/api/v1/me", origin=None)
+    assert r.status_code == 200
+    assert "Access-Control-Allow-Origin" not in r.headers
+
+
+def test_cors_headers_also_on_gateway_errors():
+    r = call("DELETE", "/api/v1/me")
+    assert r.status_code == 405
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+
+
+@pytest.mark.parametrize(
+    "path,methods",
+    [
+        ("/api/v1/me", "GET"),
+        ("/api/v1/auth/google/exchange", "POST"),
+        (f"/api/v1/workspaces/{WS}", "GET, PATCH, DELETE"),
+        (f"/api/v1/workspaces/{WS}/tasks/t1/comments", "GET, POST"),
+        ("/api/v1/notifications/n1/read", "POST"),
+    ],
+)
+def test_preflight_from_allowed_origin_succeeds_without_credentials(path, methods):
+    r = call("OPTIONS", path, headers={"Access-Control-Request-Method": methods.split(",")[0]})
+    assert r.status_code == 204
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+    assert r.headers["Access-Control-Allow-Methods"] == methods
+    allowed = r.headers["Access-Control-Allow-Headers"]
+    for name in ("Authorization", "Content-Type", "Idempotency-Key", "If-Match", "X-Request-ID"):
+        assert name in allowed
+    assert "Origin" in r.headers["Vary"]
+    assert r.text == ""
+
+
+def test_preflight_from_denied_origin_gets_403_json():
+    r = call("OPTIONS", "/api/v1/me", origin="https://evil.example")
+    assert r.status_code == 403
+    assert "Access-Control-Allow-Origin" not in r.headers
+    err = r.json()["error"]
+    assert err["code"] == "ORIGIN_NOT_ALLOWED"
+    assert UUID.match(err["request_id"])
+    assert err["details"] == []
+
+
+def test_preflight_on_unknown_path_is_404():
+    assert call("OPTIONS", "/api/v1/unknown").status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/api/v1/auth/google/challenges", "/api/v1/auth/google/exchange"])
+@pytest.mark.parametrize("origin", [None, "https://evil.example"])
+def test_login_endpoints_require_an_allowed_origin(path, origin):
+    r = call("POST", path, origin=origin)
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "ORIGIN_NOT_ALLOWED"
+
+
+def test_services_own_cors_headers_are_not_duplicated():
+    # The mock echoes request headers, not response ones, so assert the gateway
+    # sends exactly one value even if it is asked twice (single header line).
+    r = call("GET", "/api/v1/me")
+    assert r.raw.headers.get_all("Access-Control-Allow-Origin") == [ORIGIN]
+    assert len(r.raw.headers.get_all("X-Request-ID")) == 1
 
 
 def test_body_over_64_kib_is_rejected_with_json_error():
