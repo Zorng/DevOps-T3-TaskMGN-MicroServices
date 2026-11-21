@@ -1,20 +1,23 @@
 """Request-level tests: send real HTTP requests to a running gateway."""
 import os
 import re
+import subprocess
 
 import pytest
 import requests
 
-import subprocess
-
 BASE = os.environ.get("GATEWAY_URL", "http://localhost:8080")
+COMPOSE_FILE = os.path.join(os.path.dirname(__file__), "..", "compose.test.yaml")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 WS = "11111111-1111-4111-8111-111111111111"
-COMPOSE_FILE = os.path.join(os.path.dirname(__file__), "..", "compose.test.yaml")
 
 
 def call(method, path, **kwargs):
     return requests.request(method, BASE + path, timeout=10, **kwargs)
+
+
+def compose(*args):
+    subprocess.run(["docker", "compose", "-f", COMPOSE_FILE, *args], check=True)
 
 
 @pytest.mark.parametrize(
@@ -25,20 +28,28 @@ def call(method, path, **kwargs):
         ("POST", "/api/v1/auth/logout", "identity"),
         ("GET", "/api/v1/me", "identity"),
         ("GET", "/api/v1/invitations", "identity"),
-        ("POST", "/api/v1/invitations/abc/accept", "identity"),
+        ("GET", "/api/v1/invitations/abc", "identity"),
+        ("POST", "/api/v1/invitations/abc/response", "identity"),
+        ("POST", "/api/v1/invitations/abc/cancel", "identity"),
         ("GET", "/api/v1/workspaces", "identity"),
         ("POST", "/api/v1/workspaces", "identity"),
         ("GET", f"/api/v1/workspaces/{WS}", "identity"),
+        ("PATCH", f"/api/v1/workspaces/{WS}", "identity"),
+        ("DELETE", f"/api/v1/workspaces/{WS}", "identity"),
         ("GET", f"/api/v1/workspaces/{WS}/members", "identity"),
         ("DELETE", f"/api/v1/workspaces/{WS}/members/u1", "identity"),
-        ("GET", f"/api/v1/workspaces/{WS}/membership", "identity"),
+        ("DELETE", f"/api/v1/workspaces/{WS}/membership", "identity"),
+        ("GET", f"/api/v1/workspaces/{WS}/invitations", "identity"),
         ("POST", f"/api/v1/workspaces/{WS}/invitations", "identity"),
         ("GET", f"/api/v1/workspaces/{WS}/boards", "task"),
-        ("GET", f"/api/v1/workspaces/{WS}/boards/b1/tasks", "task"),
+        ("POST", f"/api/v1/workspaces/{WS}/boards", "task"),
+        ("GET", f"/api/v1/workspaces/{WS}/boards/b1", "task"),
+        ("GET", f"/api/v1/workspaces/{WS}/tasks", "task"),
         ("PATCH", f"/api/v1/workspaces/{WS}/tasks/t1", "task"),
         ("POST", f"/api/v1/workspaces/{WS}/tasks/t1/comments", "task"),
         ("GET", "/api/v1/notifications", "notification"),
-        ("PATCH", "/api/v1/notifications/n1", "notification"),
+        ("GET", "/api/v1/notifications/unread-count", "notification"),
+        ("POST", "/api/v1/notifications/n1/read", "notification"),
     ],
 )
 def test_route_goes_to_expected_service(method, path, service):
@@ -98,6 +109,9 @@ def test_request_id_is_a_uuid_forwarded_and_returned():
         "/health/ready",
         "/metrics",
         f"/api/v1/workspaces/{WS}/unknown",
+        "/api/v1/me/extra",
+        "/api/v1/invitations/abc/accept",
+        f"/api/v1/workspaces/{WS}/boards/b1/tasks",
     ],
 )
 def test_unknown_and_private_paths_return_json_404(path):
@@ -106,6 +120,28 @@ def test_unknown_and_private_paths_return_json_404(path):
     err = r.json()["error"]
     assert err["code"] == "NOT_FOUND"
     assert UUID.match(err["request_id"])
+    assert err["details"] == []
+
+
+@pytest.mark.parametrize(
+    "method,path,allow",
+    [
+        ("GET", "/api/v1/auth/logout", "POST"),
+        ("DELETE", "/api/v1/me", "GET"),
+        ("PUT", f"/api/v1/workspaces/{WS}", "GET, PATCH, DELETE"),
+        ("PATCH", "/api/v1/notifications", "GET"),
+        ("GET", f"/api/v1/workspaces/{WS}/membership", "DELETE"),
+        ("DELETE", f"/api/v1/workspaces/{WS}/tasks", "GET, POST"),
+    ],
+)
+def test_unsupported_method_returns_405_with_allow_header(method, path, allow):
+    r = call(method, path)
+    assert r.status_code == 405
+    assert r.headers["Allow"] == allow
+    assert UUID.match(r.headers["X-Request-ID"])
+    err = r.json()["error"]
+    assert err["code"] == "METHOD_NOT_ALLOWED"
+    assert err["request_id"] == r.headers["X-Request-ID"]
     assert err["details"] == []
 
 
@@ -125,10 +161,6 @@ def test_gateway_liveness_probe():
     r = call("GET", "/healthz")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
-
-
-def compose(*args):
-    subprocess.run(["docker", "compose", "-f", COMPOSE_FILE, *args], check=True)
 
 
 def test_unreachable_upstream_returns_503_with_retry_after():

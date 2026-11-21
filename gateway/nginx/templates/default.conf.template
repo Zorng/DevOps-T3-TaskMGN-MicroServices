@@ -3,8 +3,8 @@
 # variables (see ../../.env.example). Nginx's own $variables are left untouched.
 #
 # Implements the route table in api_contracts/gateway-routing.md and the header
-# rules in api_contracts/authentication.md. Throttling, CORS, upstream-failure
-# mapping (503 + Retry-After) and metrics are tracked in issue #29 / #34.
+# rules in api_contracts/authentication.md. CORS, throttling and metrics are
+# tracked in issue #29 / #34.
 
 # Nginx's request ID is 32 hex characters; the contract wants a dashed UUID.
 map $request_id $request_uuid {
@@ -38,6 +38,7 @@ server {
     proxy_set_header X-User-Email "";
     proxy_set_header X-Actor-Role "";
 
+    error_page 405 @method_not_allowed;
     error_page 413 @payload_too_large;
     error_page 502 504 =503 @dependency_unavailable;
 
@@ -47,25 +48,84 @@ server {
         return 200 '{"status":"ok"}';
     }
 
-    # ---- Task: boards and tasks under a workspace (listed first on purpose;
-    # the identity workspace rules below are exact so they cannot swallow these).
-    location ~ ^/api/v1/workspaces/[^/]+/(boards|tasks)(/.*)?$ {
+    # Routes match the public OpenAPI operations exactly. Anything else falls
+    # through to the 404 below; a known path with the wrong method gets a 405
+    # (see @method_not_allowed). Because every pattern is anchored and exact,
+    # no route can swallow another, so their order does not matter.
+
+    # ---- Task
+    location ~ ^/api/v1/workspaces/[^/]+/(boards|tasks)$ {
+        set $allow_methods "GET, POST";
+        if ($request_method !~ ^(GET|POST)$) { return 405; }
+        proxy_pass ${TASK_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces/[^/]+/(boards|tasks)/[^/]+$ {
+        set $allow_methods "GET, PATCH, DELETE";
+        if ($request_method !~ ^(GET|PATCH|DELETE)$) { return 405; }
+        proxy_pass ${TASK_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces/[^/]+/tasks/[^/]+/comments$ {
+        set $allow_methods "GET, POST";
+        if ($request_method !~ ^(GET|POST)$) { return 405; }
         proxy_pass ${TASK_UPSTREAM};
     }
 
     # ---- Identity & Workspace
-    location ~ ^/api/v1/(auth/.+|me|invitations(/.*)?)$ {
+    location ~ ^/api/v1/auth/(google/(challenges|exchange)|logout)$ {
+        set $allow_methods "POST";
+        if ($request_method != POST) { return 405; }
         proxy_pass ${IDENTITY_UPSTREAM};
     }
-    location ~ ^/api/v1/workspaces(/[^/]+)?$ {
+    location = /api/v1/me {
+        set $allow_methods "GET";
+        if ($request_method != GET) { return 405; }
         proxy_pass ${IDENTITY_UPSTREAM};
     }
-    location ~ ^/api/v1/workspaces/[^/]+/(members(/.*)?|membership|invitations(/.*)?)$ {
+    location = /api/v1/workspaces {
+        set $allow_methods "GET, POST";
+        if ($request_method !~ ^(GET|POST)$) { return 405; }
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces/[^/]+$ {
+        set $allow_methods "GET, PATCH, DELETE";
+        if ($request_method !~ ^(GET|PATCH|DELETE)$) { return 405; }
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces/[^/]+/members$ {
+        set $allow_methods "GET";
+        if ($request_method != GET) { return 405; }
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces/[^/]+/(members/[^/]+|membership)$ {
+        set $allow_methods "DELETE";
+        if ($request_method != DELETE) { return 405; }
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/workspaces/[^/]+/invitations$ {
+        set $allow_methods "GET, POST";
+        if ($request_method !~ ^(GET|POST)$) { return 405; }
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/invitations(/[^/]+)?$ {
+        set $allow_methods "GET";
+        if ($request_method != GET) { return 405; }
+        proxy_pass ${IDENTITY_UPSTREAM};
+    }
+    location ~ ^/api/v1/invitations/[^/]+/(response|cancel)$ {
+        set $allow_methods "POST";
+        if ($request_method != POST) { return 405; }
         proxy_pass ${IDENTITY_UPSTREAM};
     }
 
     # ---- Notification
-    location ~ ^/api/v1/notifications(/.*)?$ {
+    location ~ ^/api/v1/notifications(/unread-count)?$ {
+        set $allow_methods "GET";
+        if ($request_method != GET) { return 405; }
+        proxy_pass ${NOTIFICATION_UPSTREAM};
+    }
+    location ~ ^/api/v1/notifications/[^/]+/read$ {
+        set $allow_methods "POST";
+        if ($request_method != POST) { return 405; }
         proxy_pass ${NOTIFICATION_UPSTREAM};
     }
 
@@ -75,13 +135,19 @@ server {
         return 404 '{"error":{"code":"NOT_FOUND","message":"The requested resource was not found.","request_id":"$request_uuid","details":[]}}';
     }
 
+    location @method_not_allowed {
+        # add_header in a location replaces the server-level ones, so
+        # X-Request-ID has to be repeated here.
+        add_header X-Request-ID $request_uuid always;
+        add_header Allow $allow_methods always;
+        return 405 '{"error":{"code":"METHOD_NOT_ALLOWED","message":"The HTTP method is not allowed for this resource.","request_id":"$request_uuid","details":[]}}';
+    }
+
     location @payload_too_large {
         return 413 '{"error":{"code":"PAYLOAD_TOO_LARGE","message":"The request body is too large.","request_id":"$request_uuid","details":[]}}';
     }
 
     location @dependency_unavailable {
-        # add_header in a location replaces the server-level ones, so
-        # X-Request-ID has to be repeated here.
         add_header X-Request-ID $request_uuid always;
         add_header Retry-After 5 always;
         return 503 '{"error":{"code":"DEPENDENCY_UNAVAILABLE","message":"A required service is temporarily unavailable.","request_id":"$request_uuid","details":[]}}';
