@@ -3,8 +3,7 @@
 # variables (see ../../.env.example). Nginx's own $variables are left untouched.
 #
 # Implements the route table in api_contracts/gateway-routing.md and the header
-# rules in api_contracts/authentication.md. Throttling and metrics are
-# tracked in issue #29 / #34.
+# rules in api_contracts/authentication.md. Metrics are tracked in issue #34.
 
 # Nginx's request ID is 32 hex characters; the contract wants a dashed UUID.
 map $request_id $request_uuid {
@@ -32,6 +31,20 @@ map "$request_method $http_origin $cors_origin" $cors_preflight {
     "~^OPTIONS \S+ \S+$" allowed;
     "~^OPTIONS \S+ $" denied;
 }
+
+# Throttling (api_contracts/gateway-routing.md), per client IP.
+# The key is the TCP peer address ($binary_remote_addr), never X-Forwarded-For
+# or similar headers, which a client can forge. An empty key is not counted, so
+# the gateway's own health probe is exempt.
+map $uri $general_limit_key {
+    default $binary_remote_addr;
+    "/healthz" "";
+}
+# Other public requests: 120 per minute (2 per second), bursts up to 120.
+limit_req_zone $general_limit_key zone=general:10m rate=120r/m;
+# Each login endpoint has its own bucket: 10 per minute per IP. The path is part
+# of the key, so /challenges and /exchange do not share a budget.
+limit_req_zone "$binary_remote_addr$uri" zone=login:10m rate=10r/m;
 
 server {
     listen 8080;
@@ -73,7 +86,14 @@ server {
     proxy_set_header X-User-Email "";
     proxy_set_header X-Actor-Role "";
 
+    # Throttle every request by default; login routes override this below.
+    # Retry-After seconds = time for one token to refill (1 s at 2/s).
+    limit_req_status 429;
+    set $retry_after 1;
+    limit_req zone=general burst=119 nodelay;
+
     error_page 403 @origin_not_allowed;
+    error_page 429 @rate_limited;
     error_page 405 = @method_not_allowed;
     error_page 413 @payload_too_large;
     error_page 502 504 =503 @dependency_unavailable;
@@ -112,6 +132,9 @@ server {
         set $allow_methods "POST";
         if ($request_method != POST) { return 405; }
         if ($cors_origin = "") { return 403; }
+        # 10 per minute: 1 request plus a burst of 9, then one token per 6 s.
+        set $retry_after 6;
+        limit_req zone=login burst=9 nodelay;
         proxy_pass ${IDENTITY_UPSTREAM};
     }
     location = /api/v1/auth/logout {
@@ -209,6 +232,15 @@ server {
         add_header X-Request-ID $request_uuid always;
         add_header Vary Origin always;
         return 403 '{"error":{"code":"ORIGIN_NOT_ALLOWED","message":"The request origin is not allowed.","request_id":"$request_uuid","details":[]}}';
+    }
+
+    location @rate_limited {
+        add_header X-Request-ID $request_uuid always;
+        add_header Vary Origin always;
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Expose-Headers $cors_expose always;
+        add_header Retry-After $retry_after always;
+        return 429 '{"error":{"code":"RATE_LIMITED","message":"Too many requests. Try again later.","request_id":"$request_uuid","details":[]}}';
     }
 
     location @payload_too_large {

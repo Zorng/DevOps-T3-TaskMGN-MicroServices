@@ -1,6 +1,6 @@
 # API Gateway
 
-Status: foundation in place (issue #28). Routing, header stripping, JSON 404/413 errors and request IDs work and are tested against mock upstreams. Throttling, CORS, upstream-failure mapping and metrics are still to do (see [Not yet implemented](#not-yet-implemented)).
+Status: routing and request protections in place (issues #28 and #29). Exact public routes, header stripping, request IDs, JSON 404/405/413/429/503 errors, CORS and per-IP throttling work and are tested against mock upstreams. Metrics, public HTTPS and deployment are still to do (see [Not yet implemented](#not-yet-implemented)).
 
 This component exposes the public API entry point and routes requests to the three business services. It owns ingress configuration, not business entities or databases. Broker events bypass the gateway.
 
@@ -14,30 +14,45 @@ This component exposes the public API entry point and routes requests to the thr
 | Tests | `pytest` + `requests` sending real HTTP requests to a running gateway; mock services in `tests/mock_upstream.py` |
 | CI | `.github/workflows/gateway.yml` |
 
+CI (`.github/workflows/gateway.yml`) runs three jobs: `config` (`nginx -t`), `tests` (the request-level pytest suite against the Compose stack) and `container` (amd64 and arm64 image build, only after the first two pass).
+
 Why Nginx: every requirement in the [routing contract](../api_contracts/gateway-routing.md) maps to a built-in directive, so no plugins or custom code are needed. Caddy was rejected because rate limiting needs a plugin; Traefik because different limits per path are more awkward to express.
 
 ### Contract support
 
 | Requirement | Nginx feature | Status |
 | --- | --- | --- |
-| Explicit routes by path family | regex `location` blocks (exact patterns, so the workspaces rule cannot swallow Task routes) | done, tested |
+| Explicit routes by path family: only the public OpenAPI operations are forwarded | exact, anchored regex `location` blocks, so no route can swallow another | done, tested |
 | Preserve method, path, query, body, Authorization, Idempotency-Key, If-Match | `proxy_pass` without a URI | done, tested |
 | Strip client `X-Service-Key`, `X-User-ID`, `X-User-Role` and similar | `proxy_set_header <name> ""` | done, tested |
 | Request ID (UUID) forwarded and returned | `$request_id` reformatted with a `map` | done, tested |
-| Shared JSON error envelope for unknown paths (404) and oversized bodies (413) | `return` with a JSON body | done, tested |
+| Shared JSON error envelope: 404 unknown path, 405 unsupported method (with `Allow`), 413 oversized body, 429 throttled, 503 upstream failure | `return` with a JSON body, `error_page` | done, tested |
 | 64 KiB body limit | `client_max_body_size 64k` | done, tested |
-| 10 s upstream timeout, no automatic retry | `proxy_*_timeout 10s`, `proxy_next_upstream off` | configured; the 503 mapping is not yet |
+| 10 s upstream timeout, no automatic retry, 503 `DEPENDENCY_UNAVAILABLE` + `Retry-After` | `proxy_*_timeout 10s`, `proxy_next_upstream off`, `error_page 502 504 =503` | done, tested |
 | Internal paths, metrics, broker admin never public | no matching route, falls through to 404 | done, tested |
-| Per-IP throttles (10/min auth, 120/min other) with 429 + Retry-After | `limit_req_zone` / `limit_req` | not yet |
-| CORS allow-list, preflight, exposed headers | `map` on `$http_origin` + `add_header` | not yet |
-| 405 for unsupported methods | per-route method rules | not yet |
-| 503 `DEPENDENCY_UNAVAILABLE` + Retry-After on upstream failure | `error_page 502 504` | not yet |
+| Per-IP throttles (10/min per login endpoint, 120/min other) with 429 + Retry-After | `limit_req_zone` / `limit_req`, keyed on the connection address | done, tested |
+| CORS allow-list, preflight without a session, exposed headers, login endpoints require an allowed Origin | `map` on `$http_origin` + `add_header`; the services' own CORS headers are hidden | done, tested |
 | Request-rate, latency, error metrics | `stub_status` + exporter, JSON access log | not yet |
 | Public HTTPS | TLS termination at Nginx (Let's Encrypt/certbot on Oracle) | not yet |
 
 Deployment architecture: one public Nginx container (the only published port); Identity, Task, Notification, databases and the broker stay on a private network. Upstream addresses are environment variables, so the same image runs locally, in tests and on Oracle.
 
 ARM64: the base image publishes `linux/arm64`, and the CI job `container` builds the image for both architectures. Treat ARM64 as confirmed once that job has passed on `main`.
+
+## Configuration
+
+All settings are environment variables (defaults are in the `Dockerfile`; placeholders in `.env.example`).
+
+| Variable | Meaning |
+| --- | --- |
+| `IDENTITY_UPSTREAM`, `TASK_UPSTREAM`, `NOTIFICATION_UPSTREAM` | Private base URLs of the three services |
+| `CORS_ALLOWED_ORIGINS` | Browser origins allowed by CORS: exact origins joined with `\|`, dots written as `[.]`, no wildcards. Defaults to the local frontend dev origins; set the exact deployed frontend origin in production |
+
+Notes:
+
+- Throttling uses the connection address, never `X-Forwarded-For` or similar headers, which a client can forge. If another proxy is ever placed in front of the gateway, configure Nginx to trust only that proxy's address, and check that real client IPs reach the gateway after deployment.
+- Rate-limit counters are shared by every request from one client IP. The throttle tests therefore restart the gateway (`docker compose restart gateway`) before and after they run.
+- CORS is handled by the gateway. Any CORS headers sent by the services are dropped so browsers never see duplicates.
 
 ## Run and verify
 
@@ -47,7 +62,8 @@ Run from the repository root. Needs Docker with Compose, plus Python 3.13 for th
 # Build the image
 docker build --tag gateway:local gateway
 
-# Validate the rendered configuration
+# Validate the rendered configuration (Nginx resolves upstream hosts when it
+# loads the config, so give it literal addresses for this standalone check)
 docker run --rm \
   -e IDENTITY_UPSTREAM=http://127.0.0.1:8000 \
   -e TASK_UPSTREAM=http://127.0.0.1:8001 \
@@ -77,11 +93,11 @@ docker run --rm -p 8080:8080 \
 
 Upstream hostnames are resolved when Nginx starts, so start the services first (or use `depends_on` in Compose).
 
-`GET /healthz` is the gateway's own liveness probe. It is not a business route and is not proxied; service `/health/*` paths are private and return 404 here.
+`GET /healthz` is the gateway's own liveness probe. It is not a business route, is not proxied and is not throttled; service `/health/*` paths are private and return 404 here.
 
 ## Not yet implemented
 
-Tracked in the gateway issues under #4: routing details, throttling, CORS and 405/503 behaviour (#29); deployment and HTTPS (#32); automated image deployment (#33); metrics (#34).
+Tracked in the gateway issues under #4: deployment and HTTPS (#32); automated image deployment (#33); metrics (#34). Repeat browser-to-service verification against the real services once they are deployed (last criterion of #29).
 
 ## Handoff notes from Identity
 

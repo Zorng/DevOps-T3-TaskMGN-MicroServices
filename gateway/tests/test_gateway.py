@@ -2,6 +2,7 @@
 import os
 import re
 import subprocess
+import time
 
 import pytest
 import requests
@@ -265,3 +266,68 @@ def test_unreachable_upstream_returns_503_with_retry_after():
     assert err["code"] == "DEPENDENCY_UNAVAILABLE"
     assert UUID.match(err["request_id"])
     assert err["details"] == []
+
+
+# ---- Throttling -------------------------------------------------------------
+# Rate-limit state is shared by every request from this client IP, so these tests
+# restart the gateway (which resets the counters) before and after they run.
+
+
+def restart_gateway():
+    compose("restart", "gateway")
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            if requests.get(BASE + "/healthz", timeout=2).status_code == 200:
+                return
+        except requests.RequestException:
+            pass
+        time.sleep(0.5)
+    raise RuntimeError("gateway did not come back after restart")
+
+
+@pytest.fixture
+def fresh_limits():
+    restart_gateway()
+    yield
+    restart_gateway()
+
+
+def test_login_endpoint_allows_10_per_minute_then_429(fresh_limits):
+    path = "/api/v1/auth/google/challenges"
+    # Forged X-Forwarded-For values must not give a client a fresh budget.
+    statuses = [
+        call("POST", path, headers={"X-Forwarded-For": f"10.9.8.{i}"}).status_code
+        for i in range(10)
+    ]
+    assert statuses == [200] * 10
+
+    r = call("POST", path, headers={"X-Forwarded-For": "10.9.8.200"})
+    assert r.status_code == 429
+    assert r.headers["Retry-After"] == "6"
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+    err = r.json()["error"]
+    assert err["code"] == "RATE_LIMITED"
+    assert UUID.match(err["request_id"])
+    assert err["details"] == []
+
+    # The other login endpoint has its own budget.
+    assert call("POST", "/api/v1/auth/google/exchange").status_code == 200
+
+
+def test_other_requests_are_limited_to_about_120_per_minute(fresh_limits):
+    first_429 = None
+    for i in range(1, 201):
+        r = call("GET", "/api/v1/me", headers={"X-Forwarded-For": f"10.7.7.{i % 250}"})
+        if r.status_code == 429:
+            first_429 = i
+            break
+    # 120 allowed immediately; a few more may slip through while the loop runs
+    # because the budget refills at 2 per second.
+    assert first_429 is not None and 120 < first_429 <= 160
+    assert r.headers["Retry-After"] == "1"
+    assert r.json()["error"]["code"] == "RATE_LIMITED"
+
+    # Gateway health probe and the login budget are unaffected.
+    assert call("GET", "/healthz", origin=None).status_code == 200
+    assert call("POST", "/api/v1/auth/google/challenges").status_code == 200
