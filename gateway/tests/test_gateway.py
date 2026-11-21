@@ -5,9 +5,12 @@ import re
 import pytest
 import requests
 
+import subprocess
+
 BASE = os.environ.get("GATEWAY_URL", "http://localhost:8080")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 WS = "11111111-1111-4111-8111-111111111111"
+COMPOSE_FILE = os.path.join(os.path.dirname(__file__), "..", "compose.test.yaml")
 
 
 def call(method, path, **kwargs):
@@ -122,3 +125,24 @@ def test_gateway_liveness_probe():
     r = call("GET", "/healthz")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+def compose(*args):
+    subprocess.run(["docker", "compose", "-f", COMPOSE_FILE, *args], check=True)
+
+
+def test_unreachable_upstream_returns_503_with_retry_after():
+    # pause freezes the container, so Nginx waits for its 10 s timeout and
+    # answers 504 internally, which the gateway maps to the contract's 503.
+    compose("pause", "notification-mock")
+    try:
+        r = requests.get(BASE + "/api/v1/notifications", timeout=20)
+    finally:
+        compose("unpause", "notification-mock")
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "5"
+    assert UUID.match(r.headers["X-Request-ID"])
+    err = r.json()["error"]
+    assert err["code"] == "DEPENDENCY_UNAVAILABLE"
+    assert UUID.match(err["request_id"])
+    assert err["details"] == []

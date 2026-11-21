@@ -39,6 +39,7 @@ server {
     proxy_set_header X-Actor-Role "";
 
     error_page 413 @payload_too_large;
+    error_page 502 504 =503 @dependency_unavailable;
 
     # Gateway's own liveness probe (not a business route, not proxied).
     location = /healthz {
@@ -76,5 +77,13 @@ server {
 
     location @payload_too_large {
         return 413 '{"error":{"code":"PAYLOAD_TOO_LARGE","message":"The request body is too large.","request_id":"$request_uuid","details":[]}}';
+    }
+
+    location @dependency_unavailable {
+        # add_header in a location replaces the server-level ones, so
+        # X-Request-ID has to be repeated here.
+        add_header X-Request-ID $request_uuid always;
+        add_header Retry-After 5 always;
+        return 503 '{"error":{"code":"DEPENDENCY_UNAVAILABLE","message":"A required service is temporarily unavailable.","request_id":"$request_uuid","details":[]}}';
     }
 }
