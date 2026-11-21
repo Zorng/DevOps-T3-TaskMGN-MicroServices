@@ -1,0 +1,79 @@
+name: Gateway
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  config:
+    name: Validate Nginx configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build gateway image
+        run: docker build --tag gateway:ci gateway
+      - name: Check rendered configuration
+        # Nginx resolves upstream hosts at load time, so use literal addresses.
+        run: |
+          docker run --rm \
+            -e IDENTITY_UPSTREAM=http://127.0.0.1:8000 \
+            -e TASK_UPSTREAM=http://127.0.0.1:8001 \
+            -e NOTIFICATION_UPSTREAM=http://127.0.0.1:8002 \
+            gateway:ci nginx -t
+
+  tests:
+    name: Gateway request-level tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: gateway/tests/requirements.txt
+      - name: Install test dependencies
+        run: python -m pip install -r gateway/tests/requirements.txt
+      - name: Start gateway with mock upstreams
+        run: docker compose -f gateway/compose.test.yaml up -d --build --wait
+      - name: Run request-level tests
+        # pytest exits non-zero when no tests are collected, so an empty suite fails.
+        run: python -m pytest gateway/tests -v
+      - name: Show gateway logs on failure
+        if: failure()
+        run: docker compose -f gateway/compose.test.yaml logs
+      - name: Stop stack
+        if: always()
+        run: docker compose -f gateway/compose.test.yaml down -v
+
+  container:
+    name: Build gateway image (amd64 and arm64)
+    needs: [config, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build for both architectures (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          platforms: linux/amd64,linux/arm64
+          push: false

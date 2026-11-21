@@ -1,0 +1,32 @@
+# Gateway test stack: the real gateway image in front of three mock services.
+# Run from the repository root:
+#   docker compose -f gateway/compose.test.yaml up -d --build --wait
+services:
+  gateway:
+    build: .
+    environment:
+      IDENTITY_UPSTREAM: http://identity-mock:8000
+      TASK_UPSTREAM: http://task-mock:8000
+      NOTIFICATION_UPSTREAM: http://notification-mock:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      - identity-mock
+      - task-mock
+      - notification-mock
+
+  identity-mock: &mock
+    image: python:3.13-alpine
+    command: python /app/mock_upstream.py
+    volumes:
+      - ./tests/mock_upstream.py:/app/mock_upstream.py:ro
+    environment:
+      SERVICE_NAME: identity
+  task-mock:
+    <<: *mock
+    environment:
+      SERVICE_NAME: task
+  notification-mock:
+    <<: *mock
+    environment:
+      SERVICE_NAME: notification
