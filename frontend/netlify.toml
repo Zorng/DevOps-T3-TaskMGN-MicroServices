@@ -1,0 +1,15 @@
+# In the Netlify site settings, set "Base directory" to `frontend`.
+# Gateway URL and Google client ID are set as Netlify environment variables
+# (VITE_API_BASE_URL, VITE_GOOGLE_CLIENT_ID); they are public values, not secrets.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
