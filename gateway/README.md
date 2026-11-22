@@ -53,6 +53,7 @@ Notes:
 - Throttling uses the connection address, never `X-Forwarded-For` or similar headers, which a client can forge. If another proxy is ever placed in front of the gateway, configure Nginx to trust only that proxy's address, and check that real client IPs reach the gateway after deployment.
 - Rate-limit counters are shared by every request from one client IP. The throttle tests therefore restart the gateway (`docker compose restart gateway`) before and after they run.
 - CORS is handled by the gateway. Any CORS headers sent by the services are dropped so browsers never see duplicates.
+- Logs: one JSON line per request on stdout with the path only. Query strings, request bodies and headers such as `Authorization` are never logged, and Nginx's own error log is limited to critical errors because it prints full request lines. Upstream failures and throttled requests show in the access log (`status`, `upstream_status`).
 
 ## Run and verify
 

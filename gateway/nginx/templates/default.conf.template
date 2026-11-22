@@ -32,6 +32,15 @@ map "$request_method $http_origin $cors_origin" $cors_preflight {
     "~^OPTIONS \S+ $" denied;
 }
 
+# Logging: one JSON line per request on stdout. Only the path ($uri, which has no
+# query string) is logged; never the query string, request or response bodies,
+# or headers such as Authorization, so no secrets or personal content are written.
+log_format gateway escape=json
+    '{"time":"$time_iso8601","request_id":"$request_uuid","remote_addr":"$remote_addr",'
+    '"method":"$request_method","path":"$uri","status":$status,'
+    '"upstream_status":"$upstream_status","request_time":$request_time,'
+    '"bytes":$body_bytes_sent}';
+
 # Throttling (api_contracts/gateway-routing.md), per client IP.
 # The key is the TCP peer address ($binary_remote_addr), never X-Forwarded-For
 # or similar headers, which a client can forge. An empty key is not counted, so
@@ -49,6 +58,13 @@ limit_req_zone "$binary_remote_addr$uri" zone=login:10m rate=10r/m;
 server {
     listen 8080;
     server_tokens off;
+
+    access_log /dev/stdout gateway;
+    # Nginx's own error log prints the full request line, query string included,
+    # and cannot be reformatted. Only critical errors go to it; upstream failures
+    # and throttled requests are still visible in the access log above
+    # (status, upstream_status).
+    error_log /dev/stderr crit;
     default_type application/json;
 
     # Contract: 64 KiB request-body bound; 10 s upstream timeout; no auto-retry.

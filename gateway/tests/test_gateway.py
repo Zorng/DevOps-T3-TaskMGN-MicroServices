@@ -1,4 +1,5 @@
 """Request-level tests: send real HTTP requests to a running gateway."""
+import json
 import os
 import re
 import subprocess
@@ -25,6 +26,18 @@ def call(method, path, origin=ORIGIN, **kwargs):
 
 def compose(*args):
     subprocess.run(["docker", "compose", "-f", COMPOSE_FILE, *args], check=True)
+
+
+def gateway_logs():
+    """Everything the gateway container has written to stdout and stderr."""
+    out = subprocess.run(
+        ["docker", "compose", "-f", COMPOSE_FILE, "logs", "--no-log-prefix", "gateway"],
+        check=True, capture_output=True, text=True,
+    )
+    return out.stdout + out.stderr
+
+
+SECRETS = ("jane.doe", "example.com", "s3cr3t-token", "top-secret-bearer", "body-secret-value", "token=")
 
 
 @pytest.mark.parametrize(
@@ -233,6 +246,26 @@ def test_services_own_cors_headers_are_not_duplicated():
     assert len(r.raw.headers.get_all("X-Request-ID")) == 1
 
 
+def test_logs_contain_the_path_but_no_query_string_headers_or_body():
+    r = call(
+        "POST",
+        "/api/v1/workspaces?email=jane.doe%40example.com&token=s3cr3t-token",
+        headers={"Authorization": "Bearer top-secret-bearer"},
+        data=b'{"note":"body-secret-value"}',
+    )
+    assert r.status_code == 200
+    request_id = r.headers["X-Request-ID"]
+    time.sleep(0.5) 
+    logs = gateway_logs()
+    entry = next(json.loads(line) for line in logs.splitlines() if request_id in line)
+    assert entry["method"] == "POST"
+    assert entry["path"] == "/api/v1/workspaces"
+    assert entry["status"] == 200
+    assert entry["upstream_status"] == "200"
+    for secret in SECRETS:
+        assert secret not in logs
+
+
 def test_body_over_64_kib_is_rejected_with_json_error():
     r = call("POST", "/api/v1/auth/google/exchange", data=b"x" * (64 * 1024 + 1))
     assert r.status_code == 413
@@ -256,7 +289,7 @@ def test_unreachable_upstream_returns_503_with_retry_after():
     # answers 504 internally, which the gateway maps to the contract's 503.
     compose("pause", "notification-mock")
     try:
-        r = requests.get(BASE + "/api/v1/notifications", timeout=20)
+        r = requests.get(BASE + "/api/v1/notifications?email=jane.doe%40example.com", timeout=20)
     finally:
         compose("unpause", "notification-mock")
     assert r.status_code == 503
@@ -266,6 +299,8 @@ def test_unreachable_upstream_returns_503_with_retry_after():
     assert err["code"] == "DEPENDENCY_UNAVAILABLE"
     assert UUID.match(err["request_id"])
     assert err["details"] == []
+    # Nginx's error log would print the full request line, query string included.
+    assert "jane.doe" not in gateway_logs()
 
 
 # ---- Throttling -------------------------------------------------------------
@@ -302,8 +337,9 @@ def test_login_endpoint_allows_10_per_minute_then_429(fresh_limits):
     ]
     assert statuses == [200] * 10
 
-    r = call("POST", path, headers={"X-Forwarded-For": "10.9.8.200"})
+    r = call("POST", path + "?email=jane.doe%40example.com", headers={"X-Forwarded-For": "10.9.8.200"})
     assert r.status_code == 429
+    assert "jane.doe" not in gateway_logs()
     assert r.headers["Retry-After"] == "6"
     assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
     err = r.json()["error"]
