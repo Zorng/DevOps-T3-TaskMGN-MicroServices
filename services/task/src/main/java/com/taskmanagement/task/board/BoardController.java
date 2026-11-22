@@ -34,14 +34,14 @@ public class BoardController {
     private String name(byte[] body) {
         JsonNode value;
         try { value = mapper.readTree(body); } catch (RuntimeException ex) { throw new AccessFailure(400, "MALFORMED_REQUEST"); }
-        if (value == null || !value.isObject() || value.size() != 1 || !value.has("name") || !value.get("name").isString()) throw new AccessFailure(422, "VALIDATION_FAILED");
+        if (value == null || !value.isObject() || value.size() != 1 || !value.has("name") || !value.get("name").isString()) throw new AccessFailure(422, "VALIDATION_FAILED", "name", "Must be a string of 1 to 50 characters with no unknown fields.");
         String raw = value.get("name").asString();
         int start = 0, end = raw.length();
         while (start < end && whitespace(raw.codePointAt(start))) start += Character.charCount(raw.codePointAt(start));
         while (end > start && whitespace(raw.codePointBefore(end))) end -= Character.charCount(raw.codePointBefore(end));
         String name = raw.substring(start, end);
         int length = name.codePointCount(0, name.length());
-        if (length < 1 || length > 50) throw new AccessFailure(422, "VALIDATION_FAILED");
+        if (length < 1 || length > 50) throw new AccessFailure(422, "VALIDATION_FAILED", "name", "Must be a string of 1 to 50 characters with no unknown fields.");
         return name;
     }
     private boolean whitespace(int codepoint) { return Character.isWhitespace(codepoint) || Character.isSpaceChar(codepoint); }

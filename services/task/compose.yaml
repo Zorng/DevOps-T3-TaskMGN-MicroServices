@@ -27,6 +27,7 @@ services:
       TASK_DB_PASSWORD: ${TASK_DB_PASSWORD:?Set TASK_DB_PASSWORD in .env}
       IDENTITY_BASE_URL: ${TASK_CONTAINER_IDENTITY_BASE_URL:-http://host.docker.internal:8000}
       TASK_IDENTITY_SERVICE_KEY: ${TASK_IDENTITY_SERVICE_KEY:-}
+      TASK_CURSOR_SECRET: ${TASK_CURSOR_SECRET:-}
     ports:
       - "127.0.0.1:8001:8001"
     extra_hosts:
