@@ -1,17 +1,43 @@
 """Request-level tests: send real HTTP requests to a running gateway."""
+import json
 import os
 import re
+import subprocess
+import time
 
 import pytest
 import requests
 
 BASE = os.environ.get("GATEWAY_URL", "http://localhost:8080")
+COMPOSE_FILE = os.path.join(os.path.dirname(__file__), "..", "compose.test.yaml")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 WS = "11111111-1111-4111-8111-111111111111"
+# The frontend dev origin the gateway allows by default (see CORS_ALLOWED_ORIGINS).
+ORIGIN = "http://localhost:5173"
 
 
-def call(method, path, **kwargs):
-    return requests.request(method, BASE + path, timeout=10, **kwargs)
+def call(method, path, origin=ORIGIN, **kwargs):
+    """Send a request. Browser requests carry an Origin; pass origin=None to omit it."""
+    headers = dict(kwargs.pop("headers", {}))
+    if origin is not None:
+        headers.setdefault("Origin", origin)
+    return requests.request(method, BASE + path, timeout=10, headers=headers, **kwargs)
+
+
+def compose(*args):
+    subprocess.run(["docker", "compose", "-f", COMPOSE_FILE, *args], check=True)
+
+
+def gateway_logs():
+    """Everything the gateway container has written to stdout and stderr."""
+    out = subprocess.run(
+        ["docker", "compose", "-f", COMPOSE_FILE, "logs", "--no-log-prefix", "gateway"],
+        check=True, capture_output=True, text=True,
+    )
+    return out.stdout + out.stderr
+
+
+SECRETS = ("jane.doe", "example.com", "s3cr3t-token", "top-secret-bearer", "body-secret-value", "token=")
 
 
 @pytest.mark.parametrize(
@@ -22,20 +48,28 @@ def call(method, path, **kwargs):
         ("POST", "/api/v1/auth/logout", "identity"),
         ("GET", "/api/v1/me", "identity"),
         ("GET", "/api/v1/invitations", "identity"),
-        ("POST", "/api/v1/invitations/abc/accept", "identity"),
+        ("GET", "/api/v1/invitations/abc", "identity"),
+        ("POST", "/api/v1/invitations/abc/response", "identity"),
+        ("POST", "/api/v1/invitations/abc/cancel", "identity"),
         ("GET", "/api/v1/workspaces", "identity"),
         ("POST", "/api/v1/workspaces", "identity"),
         ("GET", f"/api/v1/workspaces/{WS}", "identity"),
+        ("PATCH", f"/api/v1/workspaces/{WS}", "identity"),
+        ("DELETE", f"/api/v1/workspaces/{WS}", "identity"),
         ("GET", f"/api/v1/workspaces/{WS}/members", "identity"),
         ("DELETE", f"/api/v1/workspaces/{WS}/members/u1", "identity"),
-        ("GET", f"/api/v1/workspaces/{WS}/membership", "identity"),
+        ("DELETE", f"/api/v1/workspaces/{WS}/membership", "identity"),
+        ("GET", f"/api/v1/workspaces/{WS}/invitations", "identity"),
         ("POST", f"/api/v1/workspaces/{WS}/invitations", "identity"),
         ("GET", f"/api/v1/workspaces/{WS}/boards", "task"),
-        ("GET", f"/api/v1/workspaces/{WS}/boards/b1/tasks", "task"),
+        ("POST", f"/api/v1/workspaces/{WS}/boards", "task"),
+        ("GET", f"/api/v1/workspaces/{WS}/boards/b1", "task"),
+        ("GET", f"/api/v1/workspaces/{WS}/tasks", "task"),
         ("PATCH", f"/api/v1/workspaces/{WS}/tasks/t1", "task"),
         ("POST", f"/api/v1/workspaces/{WS}/tasks/t1/comments", "task"),
         ("GET", "/api/v1/notifications", "notification"),
-        ("PATCH", "/api/v1/notifications/n1", "notification"),
+        ("GET", "/api/v1/notifications/unread-count", "notification"),
+        ("POST", "/api/v1/notifications/n1/read", "notification"),
     ],
 )
 def test_route_goes_to_expected_service(method, path, service):
@@ -95,6 +129,9 @@ def test_request_id_is_a_uuid_forwarded_and_returned():
         "/health/ready",
         "/metrics",
         f"/api/v1/workspaces/{WS}/unknown",
+        "/api/v1/me/extra",
+        "/api/v1/invitations/abc/accept",
+        f"/api/v1/workspaces/{WS}/boards/b1/tasks",
     ],
 )
 def test_unknown_and_private_paths_return_json_404(path):
@@ -104,6 +141,129 @@ def test_unknown_and_private_paths_return_json_404(path):
     assert err["code"] == "NOT_FOUND"
     assert UUID.match(err["request_id"])
     assert err["details"] == []
+
+
+@pytest.mark.parametrize(
+    "method,path,allow",
+    [
+        ("GET", "/api/v1/auth/logout", "POST"),
+        ("DELETE", "/api/v1/me", "GET"),
+        ("PUT", f"/api/v1/workspaces/{WS}", "GET, PATCH, DELETE"),
+        ("PATCH", "/api/v1/notifications", "GET"),
+        ("GET", f"/api/v1/workspaces/{WS}/membership", "DELETE"),
+        ("DELETE", f"/api/v1/workspaces/{WS}/tasks", "GET, POST"),
+    ],
+)
+def test_unsupported_method_returns_405_with_allow_header(method, path, allow):
+    r = call(method, path)
+    assert r.status_code == 405
+    assert r.headers["Allow"] == allow
+    assert UUID.match(r.headers["X-Request-ID"])
+    err = r.json()["error"]
+    assert err["code"] == "METHOD_NOT_ALLOWED"
+    assert err["request_id"] == r.headers["X-Request-ID"]
+    assert err["details"] == []
+
+
+def test_allowed_origin_gets_cors_headers_on_normal_responses():
+    r = call("GET", "/api/v1/me")
+    assert r.status_code == 200
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+    assert "Origin" in r.headers["Vary"]
+    exposed = r.headers["Access-Control-Expose-Headers"]
+    for name in ("ETag", "X-Request-ID", "Retry-After"):
+        assert name in exposed
+
+
+def test_unlisted_origin_gets_no_cors_headers_but_is_not_blocked():
+    r = call("GET", "/api/v1/me", origin="https://evil.example")
+    assert r.status_code == 200
+    assert "Access-Control-Allow-Origin" not in r.headers
+    assert "Access-Control-Expose-Headers" not in r.headers
+
+
+def test_request_without_origin_gets_no_cors_headers():
+    r = call("GET", "/api/v1/me", origin=None)
+    assert r.status_code == 200
+    assert "Access-Control-Allow-Origin" not in r.headers
+
+
+def test_cors_headers_also_on_gateway_errors():
+    r = call("DELETE", "/api/v1/me")
+    assert r.status_code == 405
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+
+
+@pytest.mark.parametrize(
+    "path,methods",
+    [
+        ("/api/v1/me", "GET"),
+        ("/api/v1/auth/google/exchange", "POST"),
+        (f"/api/v1/workspaces/{WS}", "GET, PATCH, DELETE"),
+        (f"/api/v1/workspaces/{WS}/tasks/t1/comments", "GET, POST"),
+        ("/api/v1/notifications/n1/read", "POST"),
+    ],
+)
+def test_preflight_from_allowed_origin_succeeds_without_credentials(path, methods):
+    r = call("OPTIONS", path, headers={"Access-Control-Request-Method": methods.split(",")[0]})
+    assert r.status_code == 204
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+    assert r.headers["Access-Control-Allow-Methods"] == methods
+    allowed = r.headers["Access-Control-Allow-Headers"]
+    for name in ("Authorization", "Content-Type", "Idempotency-Key", "If-Match", "X-Request-ID"):
+        assert name in allowed
+    assert "Origin" in r.headers["Vary"]
+    assert r.text == ""
+
+
+def test_preflight_from_denied_origin_gets_403_json():
+    r = call("OPTIONS", "/api/v1/me", origin="https://evil.example")
+    assert r.status_code == 403
+    assert "Access-Control-Allow-Origin" not in r.headers
+    err = r.json()["error"]
+    assert err["code"] == "ORIGIN_NOT_ALLOWED"
+    assert UUID.match(err["request_id"])
+    assert err["details"] == []
+
+
+def test_preflight_on_unknown_path_is_404():
+    assert call("OPTIONS", "/api/v1/unknown").status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/api/v1/auth/google/challenges", "/api/v1/auth/google/exchange"])
+@pytest.mark.parametrize("origin", [None, "https://evil.example"])
+def test_login_endpoints_require_an_allowed_origin(path, origin):
+    r = call("POST", path, origin=origin)
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "ORIGIN_NOT_ALLOWED"
+
+
+def test_services_own_cors_headers_are_not_duplicated():
+    # The mock echoes request headers, not response ones, so assert the gateway
+    # sends exactly one value even if it is asked twice (single header line).
+    r = call("GET", "/api/v1/me")
+    assert r.raw.headers.get_all("Access-Control-Allow-Origin") == [ORIGIN]
+    assert len(r.raw.headers.get_all("X-Request-ID")) == 1
+
+
+def test_logs_contain_the_path_but_no_query_string_headers_or_body():
+    r = call(
+        "POST",
+        "/api/v1/workspaces?email=jane.doe%40example.com&token=s3cr3t-token",
+        headers={"Authorization": "Bearer top-secret-bearer"},
+        data=b'{"note":"body-secret-value"}',
+    )
+    assert r.status_code == 200
+    request_id = r.headers["X-Request-ID"]
+    time.sleep(0.5) 
+    logs = gateway_logs()
+    entry = next(json.loads(line) for line in logs.splitlines() if request_id in line)
+    assert entry["method"] == "POST"
+    assert entry["path"] == "/api/v1/workspaces"
+    assert entry["status"] == 200
+    assert entry["upstream_status"] == "200"
+    for secret in SECRETS:
+        assert secret not in logs
 
 
 def test_body_over_64_kib_is_rejected_with_json_error():
@@ -122,3 +282,88 @@ def test_gateway_liveness_probe():
     r = call("GET", "/healthz")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+def test_unreachable_upstream_returns_503_with_retry_after():
+    # pause freezes the container, so Nginx waits for its 10 s timeout and
+    # answers 504 internally, which the gateway maps to the contract's 503.
+    compose("pause", "notification-mock")
+    try:
+        r = requests.get(BASE + "/api/v1/notifications?email=jane.doe%40example.com", timeout=20)
+    finally:
+        compose("unpause", "notification-mock")
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "5"
+    assert UUID.match(r.headers["X-Request-ID"])
+    err = r.json()["error"]
+    assert err["code"] == "DEPENDENCY_UNAVAILABLE"
+    assert UUID.match(err["request_id"])
+    assert err["details"] == []
+    # Nginx's error log would print the full request line, query string included.
+    assert "jane.doe" not in gateway_logs()
+
+
+# ---- Throttling -------------------------------------------------------------
+# Rate-limit state is shared by every request from this client IP, so these tests
+# restart the gateway (which resets the counters) before and after they run.
+
+
+def restart_gateway():
+    compose("restart", "gateway")
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            if requests.get(BASE + "/healthz", timeout=2).status_code == 200:
+                return
+        except requests.RequestException:
+            pass
+        time.sleep(0.5)
+    raise RuntimeError("gateway did not come back after restart")
+
+
+@pytest.fixture
+def fresh_limits():
+    restart_gateway()
+    yield
+    restart_gateway()
+
+
+def test_login_endpoint_allows_10_per_minute_then_429(fresh_limits):
+    path = "/api/v1/auth/google/challenges"
+    # Forged X-Forwarded-For values must not give a client a fresh budget.
+    statuses = [
+        call("POST", path, headers={"X-Forwarded-For": f"10.9.8.{i}"}).status_code
+        for i in range(10)
+    ]
+    assert statuses == [200] * 10
+
+    r = call("POST", path + "?email=jane.doe%40example.com", headers={"X-Forwarded-For": "10.9.8.200"})
+    assert r.status_code == 429
+    assert "jane.doe" not in gateway_logs()
+    assert r.headers["Retry-After"] == "6"
+    assert r.headers["Access-Control-Allow-Origin"] == ORIGIN
+    err = r.json()["error"]
+    assert err["code"] == "RATE_LIMITED"
+    assert UUID.match(err["request_id"])
+    assert err["details"] == []
+
+    # The other login endpoint has its own budget.
+    assert call("POST", "/api/v1/auth/google/exchange").status_code == 200
+
+
+def test_other_requests_are_limited_to_about_120_per_minute(fresh_limits):
+    first_429 = None
+    for i in range(1, 201):
+        r = call("GET", "/api/v1/me", headers={"X-Forwarded-For": f"10.7.7.{i % 250}"})
+        if r.status_code == 429:
+            first_429 = i
+            break
+    # 120 allowed immediately; a few more may slip through while the loop runs
+    # because the budget refills at 2 per second.
+    assert first_429 is not None and 120 < first_429 <= 160
+    assert r.headers["Retry-After"] == "1"
+    assert r.json()["error"]["code"] == "RATE_LIMITED"
+
+    # Gateway health probe and the login budget are unaffected.
+    assert call("GET", "/healthz", origin=None).status_code == 200
+    assert call("POST", "/api/v1/auth/google/challenges").status_code == 200
