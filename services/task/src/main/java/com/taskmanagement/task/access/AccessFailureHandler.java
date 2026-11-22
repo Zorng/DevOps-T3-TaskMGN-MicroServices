@@ -27,7 +27,7 @@ public class AccessFailureHandler {
         var result = ResponseEntity.status(failure.status());
         if (failure.status() == 503) result.header("Retry-After", "2");
         return result.body(Map.of("error", Map.of("code", failure.code(), "message", message,
-                "request_id", response.getHeader("X-Request-ID"), "details", failure.status() == 422
-                        ? List.of(Map.of("field", "name", "reason", "Must be a string of 1 to 50 characters with no unknown fields.")) : List.of())));
+                "request_id", response.getHeader("X-Request-ID"), "details", failure.field() != null
+                        ? List.of(Map.of("field", failure.field(), "reason", failure.reason())) : List.of())));
     }
 }

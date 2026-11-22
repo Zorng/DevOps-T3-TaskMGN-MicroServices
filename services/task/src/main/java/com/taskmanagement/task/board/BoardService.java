@@ -19,7 +19,7 @@ public class BoardService {
         return new Board(r.getObject("id", UUID.class), r.getObject("workspace_id", UUID.class), r.getString("name"),
                 r.getLong("version"), r.getTimestamp("created_at").toInstant(), r.getTimestamp("updated_at").toInstant());
     }
-    private void lockWorkspace(UUID workspace) {
+    public void lockWorkspace(UUID workspace) {
         db.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?, 0)) IS NULL", Boolean.class, workspace.toString());
     }
     public List<Board> list(UUID workspace) {
