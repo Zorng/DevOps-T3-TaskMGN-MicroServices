@@ -1,0 +1,13 @@
+# Optional: attach Task to the existing, provisioned broker's private Compose network.
+services:
+  app:
+    environment:
+      TASK_BROKER_HOST: broker
+      TASK_BROKER_PORT: 5672
+    networks:
+      - default
+      - broker-private
+networks:
+  broker-private:
+    external: true
+    name: taskmgn-broker_default

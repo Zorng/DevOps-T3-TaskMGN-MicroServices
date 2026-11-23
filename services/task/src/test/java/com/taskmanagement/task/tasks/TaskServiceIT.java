@@ -39,7 +39,7 @@ class TaskServiceIT {
     UUID board() { return boards.create(workspace,actor,UUID.randomUUID(),"Board").id(); }
     TaskInput input(UUID board,UUID assignee) { return new TaskInput(board,"Task","",assignee,null,null); }
     TaskView create(WorkspaceAccess a,UUID board,UUID member) { return tasks.create(a,"Bearer test",requestId,UUID.randomUUID(),input(board,member)); }
-    @Test void creationReplayAssignmentEventAndRollback() {
+    @Test void creationReplayAssignmentEventAndRollback() throws Exception {
         var a=access(1,true); UUID board=board(), key=UUID.randomUUID(); TaskInput input=input(board,recipient);
         TaskView task=tasks.create(a,"Bearer test",requestId,key,input);
         assertEquals(1,task.number()); assertEquals(task,tasks.create(a,"Bearer test",requestId,key,input));
@@ -48,6 +48,7 @@ class TaskServiceIT {
         assertEquals(Set.of("id","type","schema_version","producer","occurred_at","request_id","aggregate_id","aggregate_version","data"),new HashSet<>(event.propertyNames()));
         assertEquals("task.assigned.v1",event.get("type").asString()); assertEquals("task",event.get("producer").asString()); assertEquals(1,event.get("schema_version").asInt()); assertEquals(1,event.get("aggregate_version").asInt());
         assertEquals(requestId,event.get("request_id").asString()); assertEquals(task.id().toString(),event.get("aggregate_id").asString());
+        com.taskmanagement.task.outbox.EventSchemaAssertions.valid(event.toString());
         var data=event.get("data"); assertEquals(Set.of("workspace_id","task_id","actor","recipient_id","recipient_membership_id"),new HashSet<>(data.propertyNames()));
         assertEquals(recipient.toString(),data.get("recipient_id").asString()); assertEquals(recipientGen.toString(),data.get("recipient_membership_id").asString());
         assertEquals(actor.toString(),data.get("actor").get("id").asString()); assertEquals("Owner",data.get("actor").get("display_name").asString());
