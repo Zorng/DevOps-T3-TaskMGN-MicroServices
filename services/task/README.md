@@ -1,6 +1,6 @@
 # Task Service
 
-Java/Spring Boot Task service. Board and task CRUD, task assignment, and board moves are implemented with workspace authorization and service-owned PostgreSQL persistence. Comments, outbox publication, and workspace cleanup remain subsequent features.
+Java/Spring Boot Task service. Board and task CRUD, task assignment and moves, and immutable comments with explicit mentions are implemented with workspace authorization and service-owned PostgreSQL persistence. Outbox publication and workspace cleanup remain subsequent features.
 
 ## Stack
 
@@ -92,7 +92,7 @@ The script requires `.env`, stops and removes the stack containers and network, 
 | `TASK_DB_PASSWORD` | Required; no application default |
 | `IDENTITY_BASE_URL` | `http://localhost:8000`; HTTP(S) origin, no path, credentials, query, or fragment |
 | `TASK_IDENTITY_SERVICE_KEY` | Task-specific Identity service credential; unset by default. Protected requests return 503 until configured |
-| `TASK_CURSOR_SECRET` | Secret of at least 32 UTF-8 bytes, shared by all Task instances; task lists return 503 until configured |
+| `TASK_CURSOR_SECRET` | Secret of at least 32 UTF-8 bytes, shared by all Task instances; task and comment lists return 503 until configured |
 | `SERVER_PORT` | `8001` |
 | `TASK_CONTAINER_IDENTITY_BASE_URL` | Compose app only: `http://host.docker.internal:8000` |
 
@@ -114,7 +114,7 @@ When Identity implements the private access endpoint, configure `IDENTITY_BASE_U
 
 Current workspace members can list, create, retrieve and rename boards; only the owner can delete them. The five-active-board limit is serialized per workspace in PostgreSQL. Create requires a UUIDv4 `Idempotency-Key`: retries by the same actor and path replay the original response for at least 24 hours after authorization and visibility checks. Reusing a key with a different normalized name returns 409. PATCH and DELETE require a quoted version in `If-Match`; actual renames increment the version, while identical names preserve it. Deleted boards disappear and release their quota slot.
 
-Board deletion is a soft delete. Task reads enforce active board visibility, and task mutations synchronize with board deletion. Future comment reads and mutations must enforce active board and task visibility and test deletion races; no comment schema exists yet.
+Board deletion is a soft delete. Task reads enforce active board visibility, and task mutations synchronize with board deletion. Comment reads and creation also enforce active board and task visibility under the workspace lock.
 
 ## Tasks
 
@@ -122,7 +122,19 @@ Members can list, create, retrieve, update, move and delete tasks in accessible 
 
 Create requires an idempotency key; retries return the original response after checking current access and active parents. Updates and deletes require `If-Match`. Task reads reconcile assignment membership generations with a fresh Identity snapshot, updating the task version when clearing a removed membership. Assignment to another member writes a pending `task.assigned.v1` outbox record in the same transaction; broker publication and lifecycle-event consumers are future work. The tombstone tables and shared workspace lock are integration hooks for those consumers, which must use the same lock before recording removal/deletion and cleanup. Until the consumers are implemented, REST checks and read reconciliation remain the available protections; event-driven in-flight cleanup is not yet active.
 
-Task and board deletion hide tasks through parent visibility checks. Future comment operations must call the locking task-parent lookup with the verified actor inside their transaction, and test deletion races; no comment schema exists yet.
+Task and board deletion hide tasks and comments through parent visibility checks.
+
+## Comments and mentions
+
+Members can list and create immutable plain-text comments on visible tasks. There are no edit or delete comment routes. Comment lists use ascending creation time and ID, with signed cursors bound to the actor, workspace and task; they use the same `TASK_CURSOR_SECRET` as task lists. Comment creation requires an `Idempotency-Key`. Author and mentioned-user names are snapshots from creation, and comment creation does not change the task version.
+
+The frontend sends explicit mention ranges in Unicode code points, measured in the exact untrimmed body. For example, the emoji below is one code point and the space is one, so `@Sam` begins at offset 2 and has length 4:
+
+```json
+{"body":"😀 @Sam", "mentions":[{"user_id":"00000000-0000-4000-8000-000000000002", "start":2, "length":4}]}
+```
+
+Selected mentions must identify current members, fit the body and not overlap. Literal `@` text without a selected range does not notify. Repeated ranges for one member produce one pending mention event per comment; self-mentions produce none. Comment and pending event records commit together. Publication and event-driven membership/workspace cleanup remain future work.
 
 ## Tests and CI
 
@@ -130,13 +142,13 @@ Task and board deletion hide tasks through parent visibility checks. Future comm
 # Isolated unit tests, then dedicated MockMvc endpoint tests: no Docker or live services.
 ./mvnw --batch-mode --no-transfer-progress test
 
-# Also run real PostgreSQL migration, board and task concurrency/idempotency/version, assignment/outbox, cursor, reconciliation, and startup/readiness tests; Docker is required.
+# Also run real PostgreSQL migration, board, task and comment concurrency/idempotency, version and parent visibility, mention/outbox, cursor, reconciliation, and startup/readiness tests; Docker is required.
 ./mvnw --batch-mode --no-transfer-progress verify -Pintegration
 ```
 
 Unit and endpoint suites are separate Surefire executions, each configured to fail when empty. The integration profile uses Failsafe with the same empty-suite protection. It creates an ephemeral PostgreSQL container and an in-process Identity HTTP test double; it does not use a local development database or live Identity/Google credentials. Docker unavailability fails integration tests rather than silently skipping them.
 
-Coverage includes credential forwarding, validated access snapshots, no caching, authorization and dependency failures that prevent mutations, liveness independence, ready/unavailable responses, database and Identity failures, correlation headers, bounded health probes, unsupported health methods, real Flyway migration/restart-safe execution, board request validation and authorization, quota and task-number races, idempotency replay, version conflicts, signed cursor scope, assignment reconciliation, and atomic pending outbox writes. Reports are under `target/surefire-reports/`, `target/endpoint-test-reports/`, and `target/failsafe-reports/`.
+Coverage includes credential forwarding, validated access snapshots, no caching, authorization and dependency failures that prevent mutations, liveness independence, ready/unavailable responses, database and Identity failures, correlation headers, bounded health probes, unsupported health methods, real Flyway migration/restart-safe execution, board request validation and authorization, quota and task-number races, idempotency replay, version conflicts, signed cursor scope, assignment reconciliation, mention ranges and snapshots, and atomic pending outbox writes. Reports are under `target/surefire-reports/`, `target/endpoint-test-reports/`, and `target/failsafe-reports/`.
 
 [Task CI](../../.github/workflows/task-service.yml) runs all three suites on pull requests, pushes to `main`, and manual dispatch; it currently runs on every change, including contracts, to avoid skipped required checks. The container job requires successful tests. CI uploads reports and builds the image; it does not yet publish or deploy. Registry publication follows registry/deployment configuration and must remain gated by tests. Configure required GitHub checks separately; workflow files do not enforce branch protection themselves.
 
