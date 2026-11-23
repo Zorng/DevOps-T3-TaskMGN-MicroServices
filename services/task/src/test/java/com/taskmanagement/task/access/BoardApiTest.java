@@ -33,15 +33,15 @@ class BoardApiTest {
         when(client.check(eq(workspace),any(),any())).thenReturn(access(WorkspaceAccess.Role.owner));
     }
     @Test void listAndGet() throws Exception {
-        when(service.list(workspace)).thenReturn(List.of(board)); when(service.visible(workspace,boardId)).thenReturn(board);
+        when(service.listAuthorized(any())).thenReturn(List.of(board)); when(service.getAuthorized(any(),eq(boardId))).thenReturn(board);
         mvc.perform(get(base)).andExpect(status().isOk()).andExpect(jsonPath("$.items[0].name").value("Todo"));
         mvc.perform(get(base+"/"+boardId)).andExpect(status().isOk()).andExpect(header().string("ETag","\"1\"")).andExpect(jsonPath("$.workspace_id").value(workspace.toString()));
-        when(service.visible(workspace,boardId)).thenThrow(new AccessFailure(404,"NOT_FOUND"));
+        when(service.getAuthorized(any(),eq(boardId))).thenThrow(new AccessFailure(404,"NOT_FOUND"));
         mvc.perform(get(base+"/"+boardId)).andExpect(status().isNotFound());
         mvc.perform(get(base+"?bad=1")).andExpect(status().isBadRequest());
     }
     @Test void createValidatesAndRequiresAccess() throws Exception {
-        when(service.create(workspace,actor,key,"Todo")).thenReturn(board);
+        when(service.createAuthorized(any(),eq(key),eq("Todo"))).thenReturn(board);
         mvc.perform(post(base).header("Idempotency-Key",key).contentType("application/json").content("{\"name\":\"  Todo  \"}"))
                 .andExpect(status().isCreated()).andExpect(header().string("ETag","\"1\""));
         mvc.perform(post(base).contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REQUIRED"));
@@ -53,15 +53,15 @@ class BoardApiTest {
         mvc.perform(post(base).header("Idempotency-Key",key).contentType("text/plain").content("{}" )).andExpect(status().isUnsupportedMediaType());
         when(client.check(eq(workspace),any(),any())).thenThrow(new AccessFailure(404,"NOT_FOUND"));
         mvc.perform(post(base).header("Idempotency-Key",key).contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isNotFound());
-        verify(service,times(1)).create(any(),any(),any(),any());
+        verify(service,times(1)).createAuthorized(any(),any(),any());
     }
     @Test void renameChecksPreconditionAndShape() throws Exception {
-        when(service.rename(workspace,boardId,1,"Todo")).thenReturn(board);
+        when(service.renameAuthorized(any(),eq(boardId),eq(1L),eq("Todo"))).thenReturn(board);
         mvc.perform(patch(base+"/"+boardId).header("If-Match","\"1\"").contentType("application/json").content("{\"name\":\"Todo\"}"))
                 .andExpect(status().isOk()).andExpect(header().string("ETag","\"1\""));
         mvc.perform(patch(base+"/"+boardId).contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isPreconditionRequired());
         mvc.perform(patch(base+"/"+boardId).header("If-Match","*").contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isBadRequest());
-        when(service.rename(workspace,boardId,2,"Todo")).thenThrow(new AccessFailure(412,"VERSION_CONFLICT"));
+        when(service.renameAuthorized(any(),eq(boardId),eq(2L),eq("Todo"))).thenThrow(new AccessFailure(412,"VERSION_CONFLICT"));
         mvc.perform(patch(base+"/"+boardId).header("If-Match","\"2\"").contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isPreconditionFailed());
     }
     @Test void deleteRequiresOwnerAndPrecondition() throws Exception {
@@ -69,28 +69,28 @@ class BoardApiTest {
         mvc.perform(delete(base+"/"+boardId)).andExpect(status().isPreconditionRequired());
         when(client.check(eq(workspace),any(),any())).thenReturn(access(WorkspaceAccess.Role.member));
         mvc.perform(delete(base+"/"+boardId).header("If-Match","\"1\"")).andExpect(status().isForbidden());
-        verify(service,times(1)).delete(any(),any(),anyLong());
+        verify(service,times(1)).deleteAuthorized(any(),any(),anyLong());
     }
     @Test void memberCanCreateAndRenameWhileInaccessibleResourcesFail() throws Exception {
         when(client.check(eq(workspace),any(),any())).thenReturn(access(WorkspaceAccess.Role.member));
-        when(service.create(workspace,actor,key,"Todo")).thenReturn(board);
-        when(service.rename(workspace,boardId,1,"Todo")).thenReturn(board);
+        when(service.createAuthorized(any(),eq(key),eq("Todo"))).thenReturn(board);
+        when(service.renameAuthorized(any(),eq(boardId),eq(1L),eq("Todo"))).thenReturn(board);
         mvc.perform(post(base).header("Idempotency-Key",key).contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isCreated());
         mvc.perform(patch(base+"/"+boardId).header("If-Match","\"1\"").contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isOk());
-        when(service.visible(workspace,boardId)).thenThrow(new AccessFailure(404,"NOT_FOUND"));
-        when(service.rename(workspace,boardId,1,"Todo")).thenThrow(new AccessFailure(404,"NOT_FOUND"));
+        when(service.getAuthorized(any(),eq(boardId))).thenThrow(new AccessFailure(404,"NOT_FOUND"));
+        when(service.renameAuthorized(any(),eq(boardId),eq(1L),eq("Todo"))).thenThrow(new AccessFailure(404,"NOT_FOUND"));
         mvc.perform(get(base+"/"+boardId)).andExpect(status().isNotFound());
         mvc.perform(patch(base+"/"+boardId).header("If-Match","\"1\"").contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isNotFound());
         when(client.check(eq(workspace),any(),any())).thenReturn(access(WorkspaceAccess.Role.owner));
-        doThrow(new AccessFailure(404,"NOT_FOUND")).when(service).delete(workspace,boardId,1);
+        doThrow(new AccessFailure(404,"NOT_FOUND")).when(service).deleteAuthorized(any(),eq(boardId),eq(1L));
         mvc.perform(delete(base+"/"+boardId).header("If-Match","\"1\"")).andExpect(status().isNotFound());
         when(client.check(eq(workspace),any(),any())).thenThrow(new AccessFailure(404,"NOT_FOUND"));
         mvc.perform(get(base)).andExpect(status().isNotFound());
         mvc.perform(get(base+"/"+boardId)).andExpect(status().isNotFound());
         mvc.perform(patch(base+"/"+boardId).header("If-Match","\"1\"").contentType("application/json").content("{\"name\":\"Todo\"}")).andExpect(status().isNotFound());
         mvc.perform(delete(base+"/"+boardId).header("If-Match","\"1\"")).andExpect(status().isNotFound());
-        verify(service,times(2)).rename(workspace,boardId,1,"Todo");
-        verify(service,times(1)).delete(workspace,boardId,1);
+        verify(service,times(2)).renameAuthorized(any(),eq(boardId),eq(1L),eq("Todo"));
+        verify(service,times(1)).deleteAuthorized(any(),eq(boardId),eq(1L));
     }
 
 }
