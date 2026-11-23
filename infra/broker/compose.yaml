@@ -1,0 +1,57 @@
+# Message broker for the Task Management application (issue #30).
+# Run from the repository root:
+#   cp infra/broker/.env.example infra/broker/.env     (then set real secrets)
+#   docker compose -f infra/broker/compose.yaml up -d --wait broker
+#   docker compose -f infra/broker/compose.yaml --profile init run --rm broker-init
+name: taskmgn-broker
+
+services:
+  broker:
+    image: rabbitmq:4.1-management-alpine   # official multi-arch image (amd64 and arm64)
+    # RabbitMQ keys its data directory on the host name. Do not change this, or the
+    # broker starts with an empty data directory and the old queues look lost.
+    hostname: broker
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BROKER_ADMIN_USER:?copy .env.example to .env}
+      RABBITMQ_DEFAULT_PASS: ${BROKER_ADMIN_PASSWORD:?copy .env.example to .env}
+    volumes:
+      - broker-data:/var/lib/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/conf.d/20-taskmgn.conf:ro
+      - ./enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    # Bound to this machine only. Never publish these on a public interface.
+    # Other containers reach the broker as broker:5672 on the private network.
+    ports:
+      - "127.0.0.1:${BROKER_AMQP_PORT:-5672}:5672"
+      - "127.0.0.1:${BROKER_MGMT_PORT:-15672}:15672"
+      - "127.0.0.1:${BROKER_METRICS_PORT:-15692}:15692"
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  # One-shot job: applies the topology, then creates the service users. Run it
+  # after the broker is healthy and before any service starts publishing.
+  broker-init:
+    image: python:3.13-alpine
+    profiles: ["init"]
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      BROKER_MGMT_URL: http://broker:15672
+      BROKER_ADMIN_USER: ${BROKER_ADMIN_USER:?copy .env.example to .env}
+      BROKER_ADMIN_PASSWORD: ${BROKER_ADMIN_PASSWORD:?copy .env.example to .env}
+      BROKER_IDENTITY_PASSWORD: ${BROKER_IDENTITY_PASSWORD:?copy .env.example to .env}
+      BROKER_TASK_PASSWORD: ${BROKER_TASK_PASSWORD:?copy .env.example to .env}
+      BROKER_NOTIFICATION_PASSWORD: ${BROKER_NOTIFICATION_PASSWORD:?copy .env.example to .env}
+    volumes:
+      - ./scripts/provision.py:/app/scripts/provision.py:ro
+      - ./definitions.json:/app/definitions.json:ro
+    command: ["python", "/app/scripts/provision.py"]
+
+volumes:
+  broker-data:
+    name: taskmgn-broker-data

@@ -1,0 +1,365 @@
+{
+  "vhosts": [
+    {
+      "name": "taskmgn"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "events",
+      "vhost": "taskmgn",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "retry",
+      "vhost": "taskmgn",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "retry-return",
+      "vhost": "taskmgn",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "dead-letter",
+      "vhost": "taskmgn",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "notifications.v1",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "dead-letter",
+        "x-dead-letter-routing-key": "notifications.v1",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "notifications.v1.dlq",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notifications.v1.retry.5s",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "notifications.v1"
+      }
+    },
+    {
+      "name": "notifications.v1.retry.30s",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "notifications.v1"
+      }
+    },
+    {
+      "name": "notifications.v1.retry.2m",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 120000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "notifications.v1"
+      }
+    },
+    {
+      "name": "notifications.v1.retry.10m",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 600000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "notifications.v1"
+      }
+    },
+    {
+      "name": "notifications.v1.retry.30m",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 1800000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "notifications.v1"
+      }
+    },
+    {
+      "name": "task-cleanup.v1",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "dead-letter",
+        "x-dead-letter-routing-key": "task-cleanup.v1",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "task-cleanup.v1.dlq",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "task-cleanup.v1.retry.5s",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "task-cleanup.v1"
+      }
+    },
+    {
+      "name": "task-cleanup.v1.retry.30s",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "task-cleanup.v1"
+      }
+    },
+    {
+      "name": "task-cleanup.v1.retry.2m",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 120000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "task-cleanup.v1"
+      }
+    },
+    {
+      "name": "task-cleanup.v1.retry.10m",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 600000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "task-cleanup.v1"
+      }
+    },
+    {
+      "name": "task-cleanup.v1.retry.30m",
+      "vhost": "taskmgn",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-message-ttl": 1800000,
+        "x-dead-letter-exchange": "retry-return",
+        "x-dead-letter-routing-key": "task-cleanup.v1"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "dead-letter",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1.dlq",
+      "destination_type": "queue",
+      "routing_key": "notifications.v1",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1.retry.5s",
+      "destination_type": "queue",
+      "routing_key": "notifications.v1.retry.5s",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1.retry.30s",
+      "destination_type": "queue",
+      "routing_key": "notifications.v1.retry.30s",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1.retry.2m",
+      "destination_type": "queue",
+      "routing_key": "notifications.v1.retry.2m",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1.retry.10m",
+      "destination_type": "queue",
+      "routing_key": "notifications.v1.retry.10m",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1.retry.30m",
+      "destination_type": "queue",
+      "routing_key": "notifications.v1.retry.30m",
+      "arguments": {}
+    },
+    {
+      "source": "retry-return",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1",
+      "destination_type": "queue",
+      "routing_key": "notifications.v1",
+      "arguments": {}
+    },
+    {
+      "source": "dead-letter",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1.dlq",
+      "destination_type": "queue",
+      "routing_key": "task-cleanup.v1",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1.retry.5s",
+      "destination_type": "queue",
+      "routing_key": "task-cleanup.v1.retry.5s",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1.retry.30s",
+      "destination_type": "queue",
+      "routing_key": "task-cleanup.v1.retry.30s",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1.retry.2m",
+      "destination_type": "queue",
+      "routing_key": "task-cleanup.v1.retry.2m",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1.retry.10m",
+      "destination_type": "queue",
+      "routing_key": "task-cleanup.v1.retry.10m",
+      "arguments": {}
+    },
+    {
+      "source": "retry",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1.retry.30m",
+      "destination_type": "queue",
+      "routing_key": "task-cleanup.v1.retry.30m",
+      "arguments": {}
+    },
+    {
+      "source": "retry-return",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1",
+      "destination_type": "queue",
+      "routing_key": "task-cleanup.v1",
+      "arguments": {}
+    },
+    {
+      "source": "events",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1",
+      "destination_type": "queue",
+      "routing_key": "invitation.created.v1",
+      "arguments": {}
+    },
+    {
+      "source": "events",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1",
+      "destination_type": "queue",
+      "routing_key": "task.assigned.v1",
+      "arguments": {}
+    },
+    {
+      "source": "events",
+      "vhost": "taskmgn",
+      "destination": "notifications.v1",
+      "destination_type": "queue",
+      "routing_key": "task.comment_mentioned.v1",
+      "arguments": {}
+    },
+    {
+      "source": "events",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1",
+      "destination_type": "queue",
+      "routing_key": "workspace.member_removed.v1",
+      "arguments": {}
+    },
+    {
+      "source": "events",
+      "vhost": "taskmgn",
+      "destination": "task-cleanup.v1",
+      "destination_type": "queue",
+      "routing_key": "workspace.deleted.v1",
+      "arguments": {}
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+name: Broker
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: broker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  config:
+    name: Validate broker configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: infra/broker/tests/requirements.txt
+      - name: Install test dependencies
+        run: python -m pip install -r infra/broker/tests/requirements.txt
+      - name: Check definitions, permissions and event contract agree
+        # Fails if the event contract changes and the broker topology does not.
+        run: python -m pytest infra/broker/tests/test_topology.py -v
+      - name: Validate Compose file
+        run: |
+          cp infra/broker/.env.example infra/broker/.env
+          docker compose -f infra/broker/compose.yaml config --quiet
+
+  operations:
+    name: Broker operational tests
+    needs: config
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: infra/broker/tests/requirements.txt
+      - name: Install test dependencies
+        run: python -m pip install -r infra/broker/tests/requirements.txt
+      - name: Create placeholder environment
+        run: cp infra/broker/.env.example infra/broker/.env
+      - name: Start broker
+        run: docker compose -f infra/broker/compose.yaml up -d --wait broker
+      - name: Provision topology and users
+        run: docker compose -f infra/broker/compose.yaml --profile init run --rm broker-init
+      - name: Run operational tests
+        # pytest exits non-zero when no tests are collected, so an empty suite fails.
+        run: python -m pytest infra/broker/tests -v
+      - name: Show broker logs on failure
+        if: failure()
+        run: docker compose -f infra/broker/compose.yaml logs broker
+      - name: Stop broker and remove its data
+        if: always()
+        run: docker compose -f infra/broker/compose.yaml down -v
