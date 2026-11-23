@@ -32,11 +32,12 @@ class CommentServiceIT {
     UUID board() { return boards.create(workspace,actor,UUID.randomUUID(),"Board").id(); }
     UUID task(WorkspaceAccess a,UUID board) { return tasks.create(a,"Bearer test",requestId,UUID.randomUUID(),new TaskInput(board,"Task","",null,null,null)).id(); }
     CommentInput input() { return new CommentInput("😀 @Sam @Sam @Me",List.of(new CommentInput.Mention(member,2,4),new CommentInput.Mention(member,7,4),new CommentInput.Mention(actor,12,3))); }
-    @Test void replayEventsAndHistoricalSnapshots() {
+    @Test void replayEventsAndHistoricalSnapshots() throws Exception {
         var a=access(true,"Author","Sam"); UUID board=board(),task=task(a,board),key=UUID.randomUUID(); CommentView created=comments.create(a,task,key,input(),requestId);
         assertEquals(created,comments.create(a,task,key,input(),requestId)); assertEquals(3,created.mentions().size()); assertEquals(1,tasks.get(a,"Bearer test",requestId,task).version());
         assertEquals("IDEMPOTENCY_CONFLICT",assertThrows(AccessFailure.class,()->comments.create(a,task,key,new CommentInput("changed",List.of()),requestId)).code());
         var eventStrings=db.queryForList("SELECT payload::text FROM task_service.outbox WHERE payload->>'aggregate_id'=?",String.class,created.id().toString()); assertEquals(1,eventStrings.size());
+        com.taskmanagement.task.outbox.EventSchemaAssertions.valid(eventStrings.getFirst());
         var event=mapper.readTree(eventStrings.getFirst()); UUID.fromString(event.get("id").asString()); Instant.parse(event.get("occurred_at").asString());
         var expected=mapper.readTree(mapper.writeValueAsString(Map.of("id",event.get("id").asString(),"type","task.comment_mentioned.v1","schema_version",1,"producer","task","occurred_at",event.get("occurred_at").asString(),"request_id",requestId,"aggregate_id",created.id().toString(),"aggregate_version",1,"data",Map.of("workspace_id",workspace.toString(),"task_id",task.toString(),"comment_id",created.id().toString(),"actor",Map.of("id",actor.toString(),"display_name","Author"),"recipient_id",member.toString(),"recipient_membership_id",memberGen.toString())))); assertEquals(expected,event);
         var changed=access(false,"Renamed","none"); assertEquals(created,comments.list(changed,task,20,null).items().getFirst()); assertEquals(created,comments.create(changed,task,key,input(),requestId));
