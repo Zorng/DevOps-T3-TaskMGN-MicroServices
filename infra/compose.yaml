@@ -1,0 +1,271 @@
+# Local application stack: gateway, Identity & Workspace, Task, broker and the
+# service-owned databases. Notification is not built yet and is NOT part of this
+# stack (see infra/README.md, "Incomplete integrations").
+#
+# Run from the repository root (see infra/README.md for the full runbook):
+#   python3 infra/scripts/setup_env.py
+#   docker compose -f infra/compose.yaml up -d --build --wait
+name: taskmgn
+
+# --- Identity & Workspace: settings shared by the app, migration job and worker ---
+x-identity-environment: &identity-environment
+  IDENTITY_ENVIRONMENT: development
+  IDENTITY_LOG_LEVEL: INFO
+  IDENTITY_ALLOWED_ORIGINS: ${IDENTITY_ALLOWED_ORIGINS:?run python3 infra/scripts/setup_env.py}
+  IDENTITY_DATABASE_URL: postgresql+psycopg://identity_app:${IDENTITY_DB_APP_PASSWORD:?run python3 infra/scripts/setup_env.py}@identity-db:5432/identity_db
+  IDENTITY_GOOGLE_CLIENT_ID: ${IDENTITY_GOOGLE_CLIENT_ID:-}
+  IDENTITY_TASK_SERVICE_KEY: ${IDENTITY_TASK_SERVICE_KEY:?run python3 infra/scripts/setup_env.py}
+  IDENTITY_NOTIFICATION_SERVICE_KEY: ${IDENTITY_NOTIFICATION_SERVICE_KEY:?run python3 infra/scripts/setup_env.py}
+
+x-identity-container: &identity-container
+  image: taskmgn/identity-workspace:local
+  build:
+    context: ../services/identity-workspace
+    dockerfile: Dockerfile
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  # ------------------------------------------------------------------ gateway
+  # The only service that publishes a port, and only on this machine (127.0.0.1).
+  gateway:
+    build:
+      context: ../gateway
+    image: taskmgn/gateway:local
+    restart: unless-stopped
+    environment:
+      IDENTITY_UPSTREAM: http://identity-workspace:8000
+      TASK_UPSTREAM: http://task:8001
+      # Notification does not exist yet. This address has nothing listening, so
+      # its routes answer 503 DEPENDENCY_UNAVAILABLE. It is not a stand-in
+      # service; replace it with http://notification:8002 when that service is built.
+      NOTIFICATION_UPSTREAM: http://127.0.0.1:8002
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?run python3 infra/scripts/setup_env.py}
+    ports:
+      - "127.0.0.1:${GATEWAY_HTTP_PORT:-8080}:8080"
+    depends_on:
+      identity-workspace:
+        condition: service_started
+      task:
+        condition: service_started
+    networks: [backend]
+
+  # ----------------------------------------------------- identity & workspace
+  identity-workspace:
+    <<: *identity-container
+    restart: unless-stopped
+    stop_grace_period: 20s
+    environment: *identity-environment
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      identity-migrate:
+        condition: service_completed_successfully
+    networks: [backend, identity-data]
+
+  # One-off job: applies Alembic migrations before the application starts.
+  identity-migrate:
+    <<: *identity-container
+    command: ["alembic", "upgrade", "head"]
+    environment: *identity-environment
+    healthcheck:
+      disable: true
+    restart: "no"
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    networks: [identity-data]
+
+  # Delivers Identity's outbox events to the broker. Needs the database and the
+  # broker, but the HTTP service's readiness never depends on it.
+  identity-outbox:
+    <<: *identity-container
+    command: ["python", "-m", "identity_workspace.outbox.worker", "--metrics-host", "0.0.0.0"]
+    environment:
+      <<: *identity-environment
+      IDENTITY_BROKER_URL: amqp://identity:${BROKER_IDENTITY_PASSWORD:?run python3 infra/scripts/setup_env.py}@broker:5672/taskmgn
+      IDENTITY_BROKER_EXCHANGE: events
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      identity-migrate:
+        condition: service_completed_successfully
+      broker-init:
+        condition: service_completed_successfully
+    networks: [identity-data, messaging]
+
+  identity-db:
+    image: postgres:18.7@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
+    restart: unless-stopped
+    # The wrapper first copies Identity's init script in as a plain file, then runs
+    # Identity's own entrypoint (see the comment in identity-db/init-wrapper.sh).
+    entrypoint: ["/bin/sh", "/opt/identity-db-wrapper.sh"]
+    command: ["postgres"]
+    environment:
+      POSTGRES_DB: identity_db
+      POSTGRES_USER: identity_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/identity_db_owner_password
+      IDENTITY_APP_PASSWORD_FILE: /run/secrets/identity_db_app_password
+    secrets:
+      - identity_db_owner_password
+      - identity_db_app_password
+    volumes:
+      - identity-db-data:/var/lib/postgresql
+      - ./identity-db/init-wrapper.sh:/opt/identity-db-wrapper.sh:ro
+      - ../services/identity-workspace/docker/entrypoint.sh:/opt/identity/entrypoint.sh:ro
+      - ../services/identity-workspace/docker/init-db.sh:/opt/identity/init-db.sh:ro
+    # -h 127.0.0.1 checks over TCP. During first-time setup PostgreSQL runs a
+    # temporary server that has no TCP listener, so a socket check could report
+    # "healthy" before the setup script has finished.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U identity_owner -d identity_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    networks: [identity-data]
+
+  # --------------------------------------------------------------------- task
+  task:
+    build:
+      context: ../services/task
+    image: taskmgn/task:local
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TASK_DB_URL: jdbc:postgresql://task-db:5432/task_db?currentSchema=task_service
+      TASK_DB_USERNAME: ${TASK_DB_USERNAME:-task_app}
+      TASK_DB_PASSWORD: ${TASK_DB_PASSWORD:?run python3 infra/scripts/setup_env.py}
+      IDENTITY_BASE_URL: http://identity-workspace:8000
+      # Task's own key, issued by Identity (the same value Identity is given above).
+      TASK_IDENTITY_SERVICE_KEY: ${IDENTITY_TASK_SERVICE_KEY:?run python3 infra/scripts/setup_env.py}
+      TASK_CURSOR_SECRET: ${TASK_CURSOR_SECRET:?run python3 infra/scripts/setup_env.py}
+      # Event publishing (Task's outbox -> broker). Publishing never affects
+      # Task's readiness or request success; failed sends are retried automatically.
+      TASK_OUTBOX_ENABLED: "true"
+      TASK_BROKER_HOST: broker
+      TASK_BROKER_PORT: "5672"
+      TASK_BROKER_VHOST: taskmgn
+      TASK_BROKER_USERNAME: task
+      TASK_BROKER_PASSWORD: ${BROKER_TASK_PASSWORD:?run python3 infra/scripts/setup_env.py}
+      TASK_BROKER_TLS: "false"
+    # The Task image has no health check of its own. Liveness only, using bash
+    # (no curl needed): readiness also needs Identity, so it is checked by
+    # infra/scripts/check.sh instead of restarting or blocking this container.
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/8001 && printf 'GET /health/live HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    depends_on:
+      task-db:
+        condition: service_healthy
+      identity-workspace:
+        condition: service_healthy
+      # Routes and users must exist before a producer is enabled.
+      broker-init:
+        condition: service_completed_successfully
+    networks: [backend, task-data, messaging]
+
+  task-db:
+    image: postgres:17.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: task_db
+      POSTGRES_USER: ${TASK_DB_USERNAME:-task_app}
+      POSTGRES_PASSWORD: ${TASK_DB_PASSWORD:?run python3 infra/scripts/setup_env.py}
+    volumes:
+      - task-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [task-data]
+
+  # ------------------------------------------------------------------- broker
+  # Same configuration files as infra/broker/, but no published ports: the
+  # management UI and metrics are reachable only from the private network.
+  broker:
+    image: rabbitmq:4.1-management-alpine
+    # RabbitMQ keys its data directory on the host name. Never change this.
+    hostname: broker
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BROKER_ADMIN_USER:?run python3 infra/scripts/setup_env.py}
+      RABBITMQ_DEFAULT_PASS: ${BROKER_ADMIN_PASSWORD:?run python3 infra/scripts/setup_env.py}
+    volumes:
+      - broker-data:/var/lib/rabbitmq
+      - ./broker/rabbitmq.conf:/etc/rabbitmq/conf.d/20-taskmgn.conf:ro
+      - ./broker/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks: [messaging]
+
+  # One-off job: applies the topology, then creates the service users. Safe to
+  # repeat on every start. Services that use the broker start only after it succeeds.
+  broker-init:
+    image: python:3.13-alpine
+    restart: "no"
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      BROKER_MGMT_URL: http://broker:15672
+      BROKER_ADMIN_USER: ${BROKER_ADMIN_USER:?run python3 infra/scripts/setup_env.py}
+      BROKER_ADMIN_PASSWORD: ${BROKER_ADMIN_PASSWORD:?run python3 infra/scripts/setup_env.py}
+      BROKER_IDENTITY_PASSWORD: ${BROKER_IDENTITY_PASSWORD:?run python3 infra/scripts/setup_env.py}
+      BROKER_TASK_PASSWORD: ${BROKER_TASK_PASSWORD:?run python3 infra/scripts/setup_env.py}
+      BROKER_NOTIFICATION_PASSWORD: ${BROKER_NOTIFICATION_PASSWORD:?run python3 infra/scripts/setup_env.py}
+    volumes:
+      - ./broker/scripts/provision.py:/app/scripts/provision.py:ro
+      - ./broker/definitions.json:/app/definitions.json:ro
+    command: ["python", "/app/scripts/provision.py"]
+    networks: [messaging]
+
+# Private networks. `internal: true` blocks traffic to and from outside the
+# Docker network. `backend` is not internal because Identity must reach Google
+# to verify sign-ins; no service on it publishes a port except the gateway.
+networks:
+  backend: {}
+  identity-data:
+    internal: true
+  task-data:
+    internal: true
+  messaging:
+    internal: true
+
+# Each service owns its own volume. `docker compose down` keeps all of them;
+# only `down -v` deletes them.
+volumes:
+  identity-db-data:
+  task-db-data:
+  broker-data:
+
+secrets:
+  identity_db_owner_password:
+    file: ./.secrets/identity-db-owner-password
+  identity_db_app_password:
+    file: ./.secrets/identity-db-app-password
