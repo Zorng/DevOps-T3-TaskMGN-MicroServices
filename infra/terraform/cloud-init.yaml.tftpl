@@ -1,0 +1,67 @@
+#cloud-config
+# First-boot configuration for the backend VM. Rendered by Terraform; every other
+# dollar sign here is shell syntax, so only the two template values below are filled in.
+hostname: taskmgn
+timezone: UTC
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+
+write_files:
+  - path: /usr/local/sbin/taskmgn-bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Idempotent: safe to run again by hand (sudo /usr/local/sbin/taskmgn-bootstrap.sh).
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+
+      echo "== 1. swap (the JVM and image builds need headroom)"
+      if ! swapon --show | grep -q /swapfile; then
+        fallocate -l 4G /swapfile
+        chmod 600 /swapfile
+        mkswap /swapfile
+        swapon /swapfile
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      fi
+
+      echo "== 2. host firewall: Oracle's Ubuntu image rejects everything except SSH"
+      # Done before Docker is installed so Docker's own rules never end up in the saved file.
+      for port in 80 443; do
+        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
+          || iptables -I INPUT 1 -p tcp --dport "$port" -j ACCEPT
+      done
+      if [ -f /etc/iptables/rules.v4 ] && ! grep -q -- '--dport 443' /etc/iptables/rules.v4; then
+        sed -i '/^-A INPUT -j REJECT/i -A INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT\n-A INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT' /etc/iptables/rules.v4
+      fi
+
+      echo "== 3. Docker Engine and Compose (official repository, arm64 builds)"
+      if ! command -v docker >/dev/null; then
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+        apt-get update
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      fi
+      systemctl enable --now docker
+      usermod -aG docker ubuntu
+
+      echo "== 4. SSH: keys only, no root login"
+      cat > /etc/ssh/sshd_config.d/60-taskmgn.conf <<'SSHD'
+      PasswordAuthentication no
+      PermitRootLogin no
+      SSHD
+      systemctl reload ssh
+
+      echo "== 5. application checkout"
+      install -d -o ubuntu -g ubuntu /opt/taskmgn
+      if [ ! -d /opt/taskmgn/.git ]; then
+        sudo -u ubuntu git clone --branch "${repo_ref}" "${repo_url}" /opt/taskmgn
+      fi
+      echo "bootstrap finished"
+
+runcmd:
+  - [bash, -c, "/usr/local/sbin/taskmgn-bootstrap.sh > /var/log/taskmgn-bootstrap.log 2>&1 && touch /var/lib/taskmgn-bootstrap.done"]

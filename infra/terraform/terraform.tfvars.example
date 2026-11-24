@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (Git ignores it) and fill in your values.
+# The credential values appear in the console when you add an API key
+# (Profile menu, your user, API keys, Add API key, "Configuration file preview").
+
+tenancy_ocid     = "ocid1.tenancy.oc1..replace-me"
+user_ocid        = "ocid1.user.oc1..replace-me"
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path = "~/.oci/taskmgn_api_key.pem"
+
+region = "ap-singapore-1"
+
+# Your own public IP with /32, e.g. from https://ifconfig.me . Only this address may SSH.
+admin_cidr = "203.0.113.7/32"
+
+# Optional (defaults shown):
+# ocpus          = 2
+# memory_gb      = 12
+# boot_volume_gb = 100
+# repo_ref       = "main"
