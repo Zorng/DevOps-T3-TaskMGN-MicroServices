@@ -4,7 +4,7 @@ const API_PREFIX = '/api/v1';
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-type QueryValue = string | number | boolean | undefined;
+export type QueryValue = string | number | boolean | undefined;
 
 export interface ApiClientOptions {
     /** Public gateway base URL, e.g. http://localhost:8080 */
