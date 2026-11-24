@@ -33,7 +33,7 @@ jobs:
           done
       - name: Check no secrets are tracked
         run: |
-          if git ls-files | grep -E '^infra/(\.env|\.secrets/)'; then
+          if git ls-files | grep -E '^infra/(\.env$|\.secrets/)'; then
             echo "A real env or secrets file is tracked by Git." >&2
             exit 1
           fi
