@@ -1,0 +1,71 @@
+name: Infrastructure
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  config:
+    name: Validate shared Compose configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Generate placeholder environment and secrets
+        run: python3 infra/scripts/setup_env.py
+      - name: Validate Compose file
+        run: docker compose -f infra/compose.yaml config --quiet
+      - name: Check shell scripts parse
+        run: |
+          for script in infra/scripts/check.sh infra/scripts/check-events.sh infra/identity-db/init-wrapper.sh; do
+            bash -n "$script"
+          done
+      - name: Check no secrets are tracked
+        run: |
+          if git ls-files | grep -E '^infra/(\.env$|\.secrets/)'; then
+            echo "A real env or secrets file is tracked by Git." >&2
+            exit 1
+          fi
+
+  stack:
+    name: Build stack and run integration checks
+    needs: config
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Generate environment and secrets
+        run: python3 infra/scripts/setup_env.py
+      - name: Build and start the stack
+        run: docker compose -f infra/compose.yaml up -d --build --wait
+      - name: Show service status
+        run: docker compose -f infra/compose.yaml ps -a
+      - name: Gateway, health, private networking, outages and data survival
+        run: |
+          bash infra/scripts/check.sh --lifecycle | tee check.log
+          # An empty or truncated run must fail, not pass.
+          test "$(grep -c '^  PASS' check.log)" -ge 50
+      - name: Event routing and broker outage
+        run: |
+          bash infra/scripts/check-events.sh --outage | tee events.log
+          test "$(grep -c '^  PASS' events.log)" -ge 40
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f infra/compose.yaml logs --no-color --tail=200
+      - name: Stop the stack and delete its volumes
+        # Deleting volumes is for the throwaway CI runner only.
+        if: always()
+        run: docker compose -f infra/compose.yaml down -v
