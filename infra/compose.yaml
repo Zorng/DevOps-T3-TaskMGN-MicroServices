@@ -5,6 +5,9 @@
 # Run from the repository root (see infra/README.md for the full runbook):
 #   python3 infra/scripts/setup_env.py
 #   docker compose -f infra/compose.yaml up -d --build --wait
+#
+# Deployments of tested images use infra/scripts/deploy.sh, which sets
+# GATEWAY_IMAGE / IDENTITY_IMAGE / TASK_IMAGE to immutable digests.
 name: taskmgn
 
 # --- Identity & Workspace: settings shared by the app, migration job and worker ---
@@ -18,7 +21,8 @@ x-identity-environment: &identity-environment
   IDENTITY_NOTIFICATION_SERVICE_KEY: ${IDENTITY_NOTIFICATION_SERVICE_KEY:?run python3 infra/scripts/setup_env.py}
 
 x-identity-container: &identity-container
-  image: taskmgn/identity-workspace:local
+  # IDENTITY_IMAGE is set by infra/scripts/deploy.sh to a pinned digest; unset means the local build.
+  image: ${IDENTITY_IMAGE:-taskmgn/identity-workspace:local}
   build:
     context: ../services/identity-workspace
     dockerfile: Dockerfile
@@ -37,7 +41,7 @@ services:
   gateway:
     build:
       context: ../gateway
-    image: taskmgn/gateway:local
+    image: ${GATEWAY_IMAGE:-taskmgn/gateway:local}
     restart: unless-stopped
     environment:
       IDENTITY_UPSTREAM: http://identity-workspace:8000
@@ -139,7 +143,7 @@ services:
   task:
     build:
       context: ../services/task
-    image: taskmgn/task:local
+    image: ${TASK_IMAGE:-taskmgn/task:local}
     restart: unless-stopped
     cap_drop:
       - ALL
