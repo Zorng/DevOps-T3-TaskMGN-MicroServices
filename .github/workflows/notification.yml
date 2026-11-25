@@ -5,12 +5,14 @@ on:
     paths:
       - 'services/notification/**'
       - 'api_contracts/**'
+      - 'infra/broker/**'
       - '.github/workflows/notification.yml'
   push:
     branches: [main]
     paths:
       - 'services/notification/**'
       - 'api_contracts/**'
+      - 'infra/broker/**'
       - '.github/workflows/notification.yml'
   workflow_dispatch:
 
@@ -20,7 +22,7 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: services/notification
@@ -38,6 +40,14 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       DATABASE_URL: postgresql://notification_app:ci-only@127.0.0.1:5432/notification
+      BROKER_ADMIN_USER: broker-admin
+      BROKER_ADMIN_PASSWORD: ci-only-admin
+      BROKER_IDENTITY_PASSWORD: ci-only-identity
+      BROKER_TASK_PASSWORD: ci-only-task
+      BROKER_NOTIFICATION_PASSWORD: ci-only-notification
+      BROKER_HOST: 127.0.0.1
+      BROKER_PASSWORD: ci-only-notification
+      BROKER_MGMT_URL: http://127.0.0.1:15672
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +64,15 @@ jobs:
       - run: npm run test:unit
       - run: npm run test:request
       - run: npm run test:integration
+      - name: Start and provision a disposable broker
+        working-directory: .
+        run: |
+          docker compose -f infra/broker/compose.yaml up -d --wait broker
+          docker compose -f infra/broker/compose.yaml --profile init run --rm broker-init
+      - run: npm run test:broker
+      - if: failure()
+        working-directory: .
+        run: docker compose -f infra/broker/compose.yaml logs --no-color --tail=200 broker || true
 
   container:
     needs: tests
