@@ -1,6 +1,7 @@
 package com.taskmanagement.task.board;
 
 import com.taskmanagement.task.access.AccessFailure;
+import com.taskmanagement.task.access.WorkspaceAccess;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -22,6 +23,15 @@ public class BoardService {
     public void lockWorkspace(UUID workspace) {
         db.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?, 0)) IS NULL", Boolean.class, workspace.toString());
     }
+    private void requireActive(WorkspaceAccess access) {
+        lockWorkspace(access.workspaceId());
+        if (Boolean.TRUE.equals(db.queryForObject("SELECT EXISTS(SELECT 1 FROM task_service.workspace_tombstone WHERE workspace_id=?) OR EXISTS(SELECT 1 FROM task_service.membership_tombstone WHERE workspace_id=? AND membership_id=?)", Boolean.class, access.workspaceId(), access.workspaceId(), access.actorMembershipId()))) throw new AccessFailure(404, "NOT_FOUND");
+    }
+    @Transactional public List<Board> listAuthorized(WorkspaceAccess access) { requireActive(access); return list(access.workspaceId()); }
+    @Transactional public Board getAuthorized(WorkspaceAccess access, UUID id) { requireActive(access); return visible(access.workspaceId(), id); }
+    @Transactional public Board createAuthorized(WorkspaceAccess access, UUID key, String name) { requireActive(access); return create(access.workspaceId(), access.actor().id(), key, name); }
+    @Transactional public Board renameAuthorized(WorkspaceAccess access, UUID id, long version, String name) { requireActive(access); return rename(access.workspaceId(), id, version, name); }
+    @Transactional public void deleteAuthorized(WorkspaceAccess access, UUID id, long version) { requireActive(access); delete(access.workspaceId(), id, version); }
     public List<Board> list(UUID workspace) {
         return db.query("SELECT * FROM task_service.board WHERE workspace_id=? AND deleted_at IS NULL ORDER BY created_at, id", this::board, workspace);
     }

@@ -21,15 +21,15 @@ class BoardControllerTest {
     final Instant now=Instant.parse("2026-11-14T10:00:00Z");
     final Board board=new Board(id,workspace,"Todo",1,now,now);
     byte[] body(String text) { return text.getBytes(StandardCharsets.UTF_8); }
-    @Test void listDelegatesToWorkspace() { when(service.list(workspace)).thenReturn(List.of(board)); assertEquals(List.of(board),controller.list(access,request,null).get("items")); }
-    @Test void getReturnsBoardAndEtag() { when(service.visible(workspace,id)).thenReturn(board); var r=controller.get(access,id.toString(),request,null); assertEquals(board,r.getBody()); assertEquals("\"1\"",r.getHeaders().getETag()); }
+    @Test void listDelegatesToWorkspace() { when(service.listAuthorized(access)).thenReturn(List.of(board)); assertEquals(List.of(board),controller.list(access,request,null).get("items")); }
+    @Test void getReturnsBoardAndEtag() { when(service.getAuthorized(access,id)).thenReturn(board); var r=controller.get(access,id.toString(),request,null); assertEquals(board,r.getBody()); assertEquals("\"1\"",r.getHeaders().getETag()); }
     @Test void createNormalizesAndRejectsInvalidName() {
-        when(request.getContentType()).thenReturn("application/json"); when(service.create(workspace,actor,key,"Todo")).thenReturn(board);
+        when(request.getContentType()).thenReturn("application/json"); when(service.createAuthorized(access,key,"Todo")).thenReturn(board);
         assertEquals(board,controller.create(access,request,body("{\"name\":\" Todo \"}"),key.toString()).getBody());
         assertEquals(422,assertThrows(AccessFailure.class,()->controller.create(access,request,body("{\"name\":null}"),key.toString())).status());
     }
-    @Test void renameDelegatesVersion() { when(request.getContentType()).thenReturn("application/json"); when(service.rename(workspace,id,1,"Todo")).thenReturn(board);
+    @Test void renameDelegatesVersion() { when(request.getContentType()).thenReturn("application/json"); when(service.renameAuthorized(access,id,1,"Todo")).thenReturn(board);
         assertEquals(board,controller.rename(access,id.toString(),request,body("{\"name\":\"Todo\"}"),"\"1\"").getBody());
         assertEquals(428,assertThrows(AccessFailure.class,()->controller.rename(access,id.toString(),request,body("{}"),null)).status()); }
-    @Test void deleteDelegatesVersion() { assertEquals(204,controller.delete(access,id.toString(),request,null,"\"1\"").getStatusCode().value()); verify(service).delete(workspace,id,1); }
+    @Test void deleteDelegatesVersion() { assertEquals(204,controller.delete(access,id.toString(),request,null,"\"1\"").getStatusCode().value()); verify(service).deleteAuthorized(access,id,1); }
 }
