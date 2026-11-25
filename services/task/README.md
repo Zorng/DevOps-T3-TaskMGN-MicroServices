@@ -1,6 +1,6 @@
 # Task Service
 
-Java/Spring Boot Task service. Board and task CRUD, task assignment and moves, and immutable comments with explicit mentions are implemented with workspace authorization and service-owned PostgreSQL persistence. Outbox publication and workspace cleanup remain subsequent features.
+Java/Spring Boot Task service. Board and task CRUD, task assignment and moves, and immutable comments with explicit mentions are implemented with workspace authorization and service-owned PostgreSQL persistence. The Task outbox publisher is implemented; workspace cleanup remains subsequent work.
 
 ## Stack
 
@@ -81,7 +81,7 @@ Stop the local stack while preserving database data:
 ./scripts/all-down.sh
 ```
 
-The script requires `.env`, stops and removes the stack containers and network, and preserves volumes. To intentionally reset the local database, run `docker compose --profile app down --volumes` directly; this deletes the database contents. No broker is configured yet, and broker availability does not participate in this scaffold's readiness checks.
+The script requires `.env`, stops and removes the stack containers and network, and preserves volumes. To intentionally reset the local database, run `docker compose --profile app down --volumes` directly; this deletes the database contents. The broker is optional and its availability does not participate in readiness checks.
 
 ## Configuration
 
@@ -100,7 +100,7 @@ Local Compose provisions credentials from `.env`; changing a password in `.env` 
 
 Flyway creates the private `task_service` schema and records applied versions. `V1__initialize_task_schema.sql` establishes the namespace only; domain tables belong to their feature migrations. Add new versioned SQL files in `src/main/resources/db/migration/`; do not edit migrations already deployed. No tables in another service's database are accessed.
 
-Logs use Spring's ECS JSON format with the application name; `request_id` is attached to the logging context during HTTP requests. Responses include `X-Request-ID` and `Cache-Control: no-store`. The private `/actuator/prometheus` endpoint exports JVM/application/HTTP metrics. Keep both health probes and metrics off the public gateway as required by the routing contract. Domain-specific outbox metrics will follow that implementation.
+Logs use Spring's ECS JSON format with the application name; `request_id` is attached to the logging context during HTTP requests. Responses include `X-Request-ID` and `Cache-Control: no-store`. The private `/actuator/prometheus` endpoint exports JVM/application/HTTP metrics. Keep both health probes and metrics off the public gateway as required by the routing contract. Publisher metrics are described below.
 
 ## Workspace authorization
 
@@ -120,7 +120,7 @@ Board deletion is a soft delete. Task reads enforce active board visibility, and
 
 Members can list, create, retrieve, update, move and delete tasks in accessible workspaces. Tasks have workspace-unique, monotonically allocated numbers; moves preserve the ID and number. Lists use descending creation time and ID, with signed cursors bound to actor, workspace and board filter. Set `TASK_CURSOR_SECRET` to a securely generated secret of at least 32 UTF-8 bytes, identical across replicas; rotating it invalidates existing cursors. Do not commit the secret.
 
-Create requires an idempotency key; retries return the original response after checking current access and active parents. Updates and deletes require `If-Match`. Task reads reconcile assignment membership generations with a fresh Identity snapshot, updating the task version when clearing a removed membership. Assignment to another member writes a pending `task.assigned.v1` outbox record in the same transaction; broker publication and lifecycle-event consumers are future work. The tombstone tables and shared workspace lock are integration hooks for those consumers, which must use the same lock before recording removal/deletion and cleanup. Until the consumers are implemented, REST checks and read reconciliation remain the available protections; event-driven in-flight cleanup is not yet active.
+Create requires an idempotency key; retries return the original response after checking current access and active parents. Updates and deletes require `If-Match`. Task reads reconcile assignment membership generations with a fresh Identity snapshot, updating the task version when clearing a removed membership. Assignment to another member writes a pending `task.assigned.v1` outbox record in the same transaction. The outbox publisher sends confirmed events to RabbitMQ; lifecycle-event consumers are future work. The tombstone tables and shared workspace lock are integration hooks for those consumers, which must use the same lock before recording removal/deletion and cleanup. Until the consumers are implemented, REST checks and read reconciliation remain the available protections; event-driven in-flight cleanup is not yet active.
 
 Task and board deletion hide tasks and comments through parent visibility checks.
 
@@ -134,7 +134,21 @@ The frontend sends explicit mention ranges in Unicode code points, measured in t
 {"body":"😀 @Sam", "mentions":[{"user_id":"00000000-0000-4000-8000-000000000002", "start":2, "length":4}]}
 ```
 
-Selected mentions must identify current members, fit the body and not overlap. Literal `@` text without a selected range does not notify. Repeated ranges for one member produce one pending mention event per comment; self-mentions produce none. Comment and pending event records commit together. Publication and event-driven membership/workspace cleanup remain future work.
+Selected mentions must identify current members, fit the body and not overlap. Literal `@` text without a selected range does not notify. Repeated ranges for one member produce one pending mention event per comment; self-mentions produce none. Comment and pending event records commit together. Event-driven membership/workspace cleanup remains future work.
+
+## Outbox publication
+
+Publishing is opt-in and does not affect readiness or request success. Start and provision the existing [broker](../../infra/broker/README.md) first. Set `TASK_OUTBOX_ENABLED=true` and the Task account's `TASK_BROKER_PASSWORD` in the local `.env`; host, port, virtual host and username default to `localhost`, `5672`, `taskmgn` and `task`. Set `TASK_BROKER_TLS=true` across networks: Java's configured default trust store and hostname verification are used; install the broker CA in the runtime trust store. Credentials belong in a secret store, never source control.
+
+For a host-run service, `./scripts/dev.sh` connects to the broker's loopback port. For a container on Linux or Docker Desktop, attach it to the broker's existing private Compose network after provisioning:
+
+```sh
+docker compose -f compose.yaml -f compose.broker.yaml --profile app up -d --build
+```
+
+This override uses `broker:5672` on the existing `taskmgn-broker_default` network; it does not declare broker topology. The regular `all-up.sh` does not attach that network. `host.docker.internal` may work with Docker Desktop, but Linux's host gateway cannot reach a listener bound only to host loopback. Keep the broker port private; do not expose it publicly to work around this.
+
+The publisher takes one pending row lock per bounded attempt, sends persistent mandatory messages, and marks the row published only after a positive confirm and no return. Failures remain pending with exponential backoff (1–60 seconds plus bounded jitter); crash after confirmation can cause a duplicate with the same event ID and payload. Consumers must deduplicate. Pending and confirmed records are retained indefinitely; no purge is implemented. The `task.outbox.pending`, `task.outbox.oldest.seconds`, `task.outbox.publish.failures`, and `task.outbox.published` metrics and correlated event/request IDs in logs support operations. A pending age over five minutes is logged. Investigate broker credentials, routes and connectivity, then restore service; retry is automatic. Notification is not implemented yet, so production notification delivery and deduplication cannot yet be verified end to end.
 
 ## Tests and CI
 
@@ -142,13 +156,13 @@ Selected mentions must identify current members, fit the body and not overlap. L
 # Isolated unit tests, then dedicated MockMvc endpoint tests: no Docker or live services.
 ./mvnw --batch-mode --no-transfer-progress test
 
-# Also run real PostgreSQL migration, board, task and comment concurrency/idempotency, version and parent visibility, mention/outbox, cursor, reconciliation, and startup/readiness tests; Docker is required.
+# Also run real PostgreSQL and RabbitMQ migration, board/task/comment concurrency and visibility, publisher delivery/retry, cursor, reconciliation, and startup/readiness tests; Docker is required.
 ./mvnw --batch-mode --no-transfer-progress verify -Pintegration
 ```
 
 Unit and endpoint suites are separate Surefire executions, each configured to fail when empty. The integration profile uses Failsafe with the same empty-suite protection. It creates an ephemeral PostgreSQL container and an in-process Identity HTTP test double; it does not use a local development database or live Identity/Google credentials. Docker unavailability fails integration tests rather than silently skipping them.
 
-Coverage includes credential forwarding, validated access snapshots, no caching, authorization and dependency failures that prevent mutations, liveness independence, ready/unavailable responses, database and Identity failures, correlation headers, bounded health probes, unsupported health methods, real Flyway migration/restart-safe execution, board request validation and authorization, quota and task-number races, idempotency replay, version conflicts, signed cursor scope, assignment reconciliation, mention ranges and snapshots, and atomic pending outbox writes. Reports are under `target/surefire-reports/`, `target/endpoint-test-reports/`, and `target/failsafe-reports/`.
+Coverage includes credential forwarding, validated access snapshots, no caching, authorization and dependency failures that prevent mutations, liveness independence, ready/unavailable responses, database and Identity failures, correlation headers, bounded health probes, unsupported health methods, real Flyway migration/restart-safe execution, board request validation and authorization, quota and task-number races, idempotency replay, version conflicts, signed cursor scope, assignment reconciliation, mention ranges and snapshots, atomic pending outbox writes, mandatory returns, broker restart, retries and confirmed delivery. Reports are under `target/surefire-reports/`, `target/endpoint-test-reports/`, and `target/failsafe-reports/`.
 
 [Task CI](../../.github/workflows/task-service.yml) runs all three suites on pull requests, pushes to `main`, and manual dispatch; it currently runs on every change, including contracts, to avoid skipped required checks. The container job requires successful tests. CI uploads reports and builds the image; it does not yet publish or deploy. Registry publication follows registry/deployment configuration and must remain gated by tests. Configure required GitHub checks separately; workflow files do not enforce branch protection themselves.
 
