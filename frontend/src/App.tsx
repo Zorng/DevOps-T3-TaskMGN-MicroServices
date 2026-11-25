@@ -2,7 +2,8 @@ import { Route, Routes } from 'react-router';
 import { AppShell } from './components/AppShell';
 import { RequireAuth } from './components/RequireAuth';
 import { HomePage } from './pages/HomePage';
-import { NotFoundPage, NotificationsPage, WorkspacesPage } from './pages/PlaceholderPages';
+import { NotFoundPage, NotificationsPage } from './pages/PlaceholderPages';
+import { WorkspacesPage } from './workspaces/WorkspacesPage';
 import { SignInPage } from './pages/SignInPage';
 
 export function App() {

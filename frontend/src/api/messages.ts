@@ -8,27 +8,33 @@ export function describeError(error: unknown, fallback: string = GENERIC_ERROR_M
 
     switch (error.code) {
         case 'NETWORK_ERROR':
-        return 'The service could not be reached. Check your connection and try again.';
+            return 'The service could not be reached. Check your connection and try again.';
         case 'ORIGIN_NOT_ALLOWED':
-        return 'This site address is not allowed to use the service yet. Ask the team to add it to the allowed origins.';
+            return 'This site address is not allowed to use the service yet. Ask the team to add it to the allowed origins.';
         case 'AUTH_CHALLENGE_INVALID':
-        return 'The sign-in attempt expired. Please try again.';
+            return 'The sign-in attempt expired. Please try again.';
         case 'GOOGLE_TOKEN_INVALID':
-        return 'Google sign-in could not be verified. Please try again.';
+            return 'Google sign-in could not be verified. Please try again.';
         case 'AUTH_REQUIRED':
         case 'SESSION_INVALID':
-        return 'Your session has ended. Please sign in again.';
+            return 'Your session has ended. Please sign in again.';
         case 'RATE_LIMITED':
-        return error.retryAfterSeconds === undefined
+            return error.retryAfterSeconds === undefined
             ? 'Too many attempts. Please wait a moment and try again.'
             : `Too many attempts. Please wait ${error.retryAfterSeconds} seconds and try again.`;
         case 'DEPENDENCY_UNAVAILABLE':
-        return error.retryAfterSeconds === undefined
-            ? 'The service is temporarily unavailable. Please try again shortly.'
-            : `The service is temporarily unavailable. Please try again in about ${error.retryAfterSeconds} seconds.`;
+            return error.retryAfterSeconds === undefined
+                ? 'The service is temporarily unavailable. Please try again shortly.'
+                : `The service is temporarily unavailable. Please try again in about ${error.retryAfterSeconds} seconds.`;
+        case 'WORKSPACE_LIMIT_REACHED':
+            return 'You already own 10 workspaces, the maximum. Workspaces you have joined do not count toward this limit. Delete one of your own workspaces to create another.';
+        case 'VALIDATION_FAILED':
+            return 'The information you entered is not valid. Check it and try again.';
+        case 'IDEMPOTENCY_IN_PROGRESS':
+            return 'Your request is still being processed. Please wait a moment and try again.';
         case 'INTERNAL_ERROR':
-        return 'The service ran into a problem. Please try again.';
+            return 'The service ran into a problem. Please try again.';
         default:
-        return fallback;
+            return fallback;
     }
 }

@@ -13,6 +13,9 @@ describe('describeError', () => {
         ['GOOGLE_TOKEN_INVALID', 'could not be verified'],
         ['SESSION_INVALID', 'session has ended'],
         ['AUTH_REQUIRED', 'session has ended'],
+        ['WORKSPACE_LIMIT_REACHED', 'maximum'],
+        ['VALIDATION_FAILED', 'not valid'],
+        ['IDEMPOTENCY_IN_PROGRESS', 'still being processed'],
         ['INTERNAL_ERROR', 'problem'],
     ])('describes %s', (code, fragment) => {
         expect(describeError(make(code))).toContain(fragment);
