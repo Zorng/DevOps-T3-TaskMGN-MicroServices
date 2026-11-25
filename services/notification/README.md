@@ -48,9 +48,8 @@ node --env-file=.env dist/migrate.js
 node --env-file=.env dist/server.js
 ```
 
-The transactional migration records its version and can be rerun. Its
-unique event/recipient constraint prevents duplicate rows for the same
-delivery. Readiness returns 200 and `{"status":"ok"}` when PostgreSQL can
+The migrator applies each `migrations/NNN_*.sql` file once, in order, in a
+single transaction, and can be rerun. Readiness returns 200 and `{"status":"ok"}` when PostgreSQL can
 query the migrated table and Identity returns 200. Unavailable or
 unconfigured dependencies return 503 and `{"status":"unavailable"}`.
 
@@ -145,6 +144,47 @@ The integration suite starts a controlled Identity health server, verifies
 readiness and recovery, and checks recipient deduplication in PostgreSQL.
 GitHub Actions runs all three suites before building and smoke-testing the
 image.
+
+## Process notification events
+
+`processEvent(pool, message)` in `src/processing.ts` turns one broker message
+into a stored notification. Broker consumption and acknowledgements are added
+separately; until then, call it directly or through the tests.
+
+It accepts `invitation.created.v1`, `task.assigned.v1` and
+`task.comment_mentioned.v1`. Messages are validated against
+`src/contracts/event.schema.json`, a copy of the shared event schema that a
+unit test keeps in sync. The schema also fixes the producer for each type.
+
+| Outcome | Result |
+| --- | --- |
+| New event | `created`: one unread notification for the recipient |
+| Actor is the recipient | `suppressed`: marked processed, no notification |
+| Event already processed | `duplicate`: no change |
+| Malformed, oversized, unsupported or wrong producer | throws `InvalidEventError` before any write; do not retry |
+| Database failure | throws; nothing is committed, so retry the same message |
+
+The processed-event marker in `processed_events`, keyed by consumer name and
+event ID, and the notification commit in one transaction. A replay after
+commit, or concurrent copies of one event, therefore create one notification.
+Notifications keep IDs and the actor's display name only. They are historical
+records and do not grant access to the invitation, task or comment. Markers
+and notifications are kept for the project lifetime.
+
+To reproduce against a disposable database:
+
+```sh
+docker run -d --rm --name notification-test-db -p 127.0.0.1:55432:5432 \
+  -e POSTGRES_DB=notification -e POSTGRES_USER=notification_app -e POSTGRES_PASSWORD=test-only postgres:17
+export DATABASE_URL=postgresql://notification_app:test-only@127.0.0.1:55432/notification
+npm run build && npm run migrate && npm run test:integration
+docker exec notification-test-db psql -U notification_app -d notification \
+  -c 'SELECT type, recipient_id, task_id, read_at FROM notification_service.notifications LIMIT 5'
+docker stop notification-test-db
+```
+
+The integration tests cover every event type, replay, six concurrent
+deliveries, self-suppression, rollback before commit and invalid events.
 
 ## Container
 
