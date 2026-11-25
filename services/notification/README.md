@@ -1,9 +1,9 @@
 # Notification Service
 
 Issue #39 establishes the service runtime, database migration, private health
-probes, telemetry, and test pipeline. Issue #40 adds session verification
-for the notification routes. Event delivery, listing, unread counts, and
-mark-as-read are follow-up work.
+probes, telemetry, and test pipeline. Issue #40 adds session verification,
+#41 adds event processing and #42 adds the public notification API. Broker
+consumption is follow-up work.
 
 The service uses Node.js 24 LTS to run JavaScript, TypeScript 5.9 to check
 types at build time, Express 5 to handle HTTP, and PostgreSQL 17 or 18 to
@@ -40,6 +40,7 @@ that database. Copy `.env.example` to `.env` and set these values:
 | `PORT` | Listen port. Defaults to `8002`. |
 | `DATABASE_URL` | PostgreSQL connection URL for the service-owned database. |
 | `IDENTITY_READY_URL` | Identity's private readiness URL, such as `http://127.0.0.1:8000/health/ready` when running on the host. |
+| `NOTIFICATION_CURSOR_SECRET` | At least 32 random bytes used to sign list cursors, for example from `openssl rand -base64 32`. |
 
 With Identity running and the service built, run:
 
@@ -73,7 +74,6 @@ private `POST /internal/v1/auth/introspect` endpoint before the handler can
 access recipient data. When adding routes, mount them through the guarded
 router in `createApp` and use `response.locals.recipientId` to scope every
 storage operation. The guard gets that ID from Identity on every request.
-The public notification routes are scheduled for #42.
 
 Set `IDENTITY_BASE_URL` to Identity's private HTTP(S) origin (no path) and
 `NOTIFICATION_IDENTITY_SERVICE_KEY` to the same dedicated secret configured
@@ -144,6 +144,65 @@ The integration suite starts a controlled Identity health server, verifies
 readiness and recovery, and checks recipient deduplication in PostgreSQL.
 GitHub Actions runs all three suites before building and smoke-testing the
 image.
+
+## Notification API
+
+All three routes run behind the session guard and use only the recipient ID
+that Identity returns. There is no public create endpoint; notifications come
+from events.
+
+| Route | Result |
+| --- | --- |
+| `GET /api/v1/notifications` | Page of the caller's notifications, newest first (`created_at`, then `id`, descending). Accepts `limit` (1-100, default 20), `cursor` and `unread_only` (`true` or `false`). |
+| `GET /api/v1/notifications/unread-count` | `{"count": n}`, counted at read time |
+| `POST /api/v1/notifications/{notification_id}/read` | Sets `read_at` on the first call and returns the notification. Repeats keep the first `read_at`. |
+
+- Any other query parameter, a repeated parameter or a request body returns
+  400 `MALFORMED_REQUEST`. A non-JSON body returns 415.
+- `next_cursor` is an HMAC-signed token bound to the recipient and the
+  `unread_only` value. Using it for another recipient or filter, or changing
+  it, returns 400 `INVALID_CURSOR`. The last page has `next_cursor: null`.
+- Another recipient's notification, or one that does not exist, returns 404
+  `NOT_FOUND`.
+- Without a database or a cursor secret of at least 32 bytes, the routes
+  return 503 `DEPENDENCY_UNAVAILABLE` with `Retry-After: 1`.
+- Notifications are historical. Their IDs grant no access to the invitation,
+  task or comment; the owning service checks access when they are opened.
+
+Migration 003 stores `created_at` and `read_at` at millisecond precision so
+API timestamps and cursor positions match exactly, and adds indexes for the
+recipient list and unread count.
+
+Example, with the service running and a valid application token:
+
+```sh
+TOKEN='paste-application-token'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8002/api/v1/notifications?limit=2&unread_only=true'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8002/api/v1/notifications?limit=2&cursor=NEXT_CURSOR'
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8002/api/v1/notifications/unread-count
+curl -s -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8002/api/v1/notifications/NOTIFICATION_ID/read
+```
+
+Until broker consumption exists, seed an assignment notification for the
+signed-in user (their ID is `user.id` from `GET /api/v1/me` on Identity):
+
+```sh
+RECIPIENT_ID='your-user-id' node --env-file=.env -e "
+const { randomUUID } = require('node:crypto');
+const [, event] = require('../../api_contracts/examples/events.json');
+const { createPool } = require('./dist/dependencies.js');
+const { processEvent } = require('./dist/processing.js');
+const pool = createPool(process.env.DATABASE_URL);
+event.id = randomUUID();
+event.data.recipient_id = process.env.RECIPIENT_ID;
+processEvent(pool, JSON.stringify(event)).then(console.log).finally(() => pool.end());
+"
+```
+
+Request tests validate every response against the Notification OpenAPI
+schemas and cover authentication, recipient isolation and validation for each
+route. Integration tests cover paging with tied timestamps, the unread
+filter, exact counts and concurrent mark-as-read against PostgreSQL.
 
 ## Process notification events
 
