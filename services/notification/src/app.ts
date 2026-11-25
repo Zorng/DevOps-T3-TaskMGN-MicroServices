@@ -9,6 +9,7 @@ const bodyLimit = 64 * 1024;
 export function createApp(
   checkDependencies: (requestId: string) => Promise<void>,
   sessions?: { introspect: IntrospectSession; routes?: Router },
+  extraMetrics: () => string[] = () => [],
 ) {
   const app = express();
   app.disable('x-powered-by');
@@ -74,6 +75,7 @@ export function createApp(
       `notification_http_server_errors_total ${failedRequests}`,
       '# TYPE notification_http_request_duration_seconds_total counter',
       `notification_http_request_duration_seconds_total ${durationSeconds}`,
+      ...extraMetrics(),
       '',
     ].join('\n'));
   });

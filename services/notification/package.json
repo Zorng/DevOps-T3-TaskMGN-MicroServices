@@ -2,6 +2,7 @@
   "dependencies": {
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
+    "amqplib": "2.3.1",
     "express": "^5.2.1",
     "pg": "8.23.1"
   },
@@ -21,7 +22,8 @@
     "migrate": "node dist/migrate.js",
     "test:unit": "node test/run.cjs unit",
     "test:request": "node test/run.cjs request",
-    "test:integration": "node test/run.cjs integration"
+    "test:integration": "node test/run.cjs integration",
+    "test:broker": "node test/run.cjs broker"
   },
   "engines": {
     "node": ">=24"

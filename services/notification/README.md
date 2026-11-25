@@ -2,8 +2,8 @@
 
 Issue #39 establishes the service runtime, database migration, private health
 probes, telemetry, and test pipeline. Issue #40 adds session verification,
-#41 adds event processing and #42 adds the public notification API. Broker
-consumption is follow-up work.
+#41 adds event processing, #42 adds the public notification API and #43
+consumes events from RabbitMQ.
 
 The service uses Node.js 24 LTS to run JavaScript, TypeScript 5.9 to check
 types at build time, Express 5 to handle HTTP, and PostgreSQL 17 or 18 to
@@ -207,8 +207,8 @@ filter, exact counts and concurrent mark-as-read against PostgreSQL.
 ## Process notification events
 
 `processEvent(pool, message)` in `src/processing.ts` turns one broker message
-into a stored notification. Broker consumption and acknowledgements are added
-separately; until then, call it directly or through the tests.
+into a stored notification. The broker consumer below calls it for each
+delivery; tests and local seeding can also call it directly.
 
 It accepts `invitation.created.v1`, `task.assigned.v1` and
 `task.comment_mentioned.v1`. Messages are validated against
@@ -244,6 +244,100 @@ docker stop notification-test-db
 
 The integration tests cover every event type, replay, six concurrent
 deliveries, self-suppression, rollback before commit and invalid events.
+
+## Consume events from RabbitMQ
+
+The service starts a consumer when `DATABASE_URL`, `BROKER_HOST` and
+`BROKER_PASSWORD` are set; otherwise it logs `consumer_disabled` and serves
+the API only. It connects as the `notification` broker user, which may only
+read `notifications.v1` and publish to the `retry` and `dead-letter`
+exchanges. The broker topology and users come from
+[infra/broker](../../infra/broker/README.md); the consumer never declares
+queues or exchanges.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BROKER_HOST` | none | Broker host, `broker` on the private network |
+| `BROKER_PORT` | `5672` | AMQP port |
+| `BROKER_VHOST` | `taskmgn` | Virtual host |
+| `BROKER_USERNAME` | `notification` | Service account |
+| `BROKER_PASSWORD` | none | Same value as `BROKER_NOTIFICATION_PASSWORD` in the broker environment |
+| `BROKER_TLS` | `false` | Use `amqps` when the broker is reached across networks |
+
+Replicas share `notifications.v1` as competing consumers with a prefetch of
+10. Each replica handles its deliveries one at a time and acknowledges a
+message only after `processEvent` commits.
+
+| Result | What the consumer does |
+| --- | --- |
+| `created`, `suppressed` or `duplicate` | Acknowledge |
+| `InvalidEventError` or an invalid `x-attempt` header | Forward to `dead-letter` at once, then acknowledge |
+| Other error on attempt 1-5 | Forward to `notifications.v1.retry.<5s, 30s, 2m, 10m, 30m>` with `x-attempt` + 1, then acknowledge |
+| Other error on attempt 6 | Forward to `dead-letter`, then acknowledge |
+
+Forwards keep the message ID, type, body and headers, and use persistent
+delivery, publisher confirms and `mandatory`. If a forward is not confirmed
+within 5 seconds, is negatively confirmed or is returned as unroutable, the
+original is not acknowledged; the consumer closes its connection so the broker
+redelivers the message, then reconnects after 5 seconds. A crash before commit
+redelivers the event for normal processing, and a crash after commit
+redelivers it as a harmless duplicate.
+
+Consumer logs are JSON lines carrying `event_id`, `request_id`, `type`,
+`attempt` and the outcome, delay or reason. They never include message bodies,
+broker credentials or error text. `/metrics` adds these counters:
+
+| Metric | Counts |
+| --- | --- |
+| `notification_consumer_events_total{outcome}` | Acknowledged `created`, `suppressed` and `duplicate` results |
+| `notification_consumer_invalid_events_total` | Malformed or unsupported messages |
+| `notification_consumer_processing_failures_total` | Transient processing failures |
+| `notification_consumer_retries_total` | Messages sent to a delay queue |
+| `notification_consumer_dead_letters_total` | Messages sent to `notifications.v1.dlq` |
+| `notification_consumer_disconnects_total` | Lost broker connections |
+
+Queue depth for `notifications.v1`, its delay queues and its dead-letter queue
+is on the broker's own Prometheus endpoint.
+
+### Recover dead letters
+
+Find out why the messages failed from the `event_dead_lettered` logs, fix the
+cause, then replay from the repository root with the broker admin account
+(create `.venv` as described in the [broker README](../../infra/broker/README.md#dead-letters-inspect-and-replay)):
+
+```sh
+export BROKER_ADMIN_USER=... BROKER_ADMIN_PASSWORD=...   # from infra/broker/.env
+.venv/bin/python infra/broker/scripts/replay_dead_letters.py notifications.v1 --dry-run
+.venv/bin/python infra/broker/scripts/replay_dead_letters.py notifications.v1 --limit 10
+```
+
+Replayed messages keep their event ID, so an event that was already processed
+is acknowledged as a duplicate and creates no second notification. Malformed
+events fail again; inspect and remove them in the management UI instead.
+
+### Broker tests
+
+`npm run test:broker` needs a provisioned broker and a migrated database. From
+the repository root, with `infra/broker/.env` created from its example:
+
+```sh
+docker compose -f infra/broker/compose.yaml up -d --wait broker
+docker compose -f infra/broker/compose.yaml --profile init run --rm broker-init
+cd services/notification
+set -a; . ../../infra/broker/.env; set +a
+export BROKER_HOST=127.0.0.1 BROKER_PASSWORD="$BROKER_NOTIFICATION_PASSWORD"
+export DATABASE_URL=postgresql://notification_app:test-only@127.0.0.1:55432/notification
+npm run build && npm run migrate && npm run test:broker
+```
+
+The tests purge the `notifications.v1` queues, so do not run them against a
+broker with real traffic. They cover acknowledgement after commit, redelivered
+duplicates, a crash before commit, a crash after commit before
+acknowledgement, a database outage retried through the 5-second delay queue,
+poison messages, dead-lettering after the sixth failure with a replay that
+creates one notification, reconnecting after the broker drops the connection,
+and two competing consumers. GitHub Actions starts and provisions a disposable
+broker for them.
 
 ## Container
 
