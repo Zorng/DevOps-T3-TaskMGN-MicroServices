@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
 import { checkDependencies, createPool } from './dependencies.js';
 import { createIdentityClient } from './identity.js';
+import { createNotificationRoutes } from './routes.js';
 
 const introspect = createIdentityClient(
   process.env.IDENTITY_BASE_URL,
@@ -19,7 +20,7 @@ pool?.on('error', () => {
 const app = createApp(async (requestId) => {
   if (!pool || !identityReadyUrl) throw new Error('Readiness dependencies are not configured');
   await checkDependencies(pool, identityReadyUrl, requestId);
-}, { introspect });
+}, { introspect, routes: createNotificationRoutes(pool, process.env.NOTIFICATION_CURSOR_SECRET) });
 
 app.listen(port, host, () => {
   console.log(JSON.stringify({ service: 'notification', event: 'listening', host, port }));
