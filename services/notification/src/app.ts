@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import express, { type ErrorRequestHandler, type RequestHandler, type Response } from 'express';
+import express, { type ErrorRequestHandler, type RequestHandler, type Router } from 'express';
 import { liveness, readiness } from './health.js';
-
-const uuidPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+import { requireSession } from './authorization.js';
+import { sendError, uuidPattern } from './http.js';
+import type { IntrospectSession } from './identity.js';
 const bodyLimit = 64 * 1024;
 
-export function createApp(checkDependencies: (requestId: string) => Promise<void>) {
+export function createApp(
+  checkDependencies: (requestId: string) => Promise<void>,
+  sessions?: { introspect: IntrospectSession; routes?: Router },
+) {
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -74,6 +78,10 @@ export function createApp(checkDependencies: (requestId: string) => Promise<void
     ].join('\n'));
   });
 
+  if (sessions?.routes) {
+    app.use('/api/v1/notifications', requireSession(sessions.introspect), sessions.routes);
+  }
+
   app.use((_request, response) => sendError(response, 404, 'NOT_FOUND', 'Route not found.'));
   const handleError: ErrorRequestHandler = (error, _request, response, next) => {
     if (response.headersSent) {
@@ -106,9 +114,3 @@ const requireBodyless: RequestHandler = (request, response, next) => {
   }
   next();
 };
-
-function sendError(response: Response, status: number, code: string, message: string) {
-  response.status(status).json({
-    error: { code, message, request_id: response.get('X-Request-ID'), details: [] },
-  });
-}

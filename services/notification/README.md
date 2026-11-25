@@ -1,8 +1,9 @@
 # Notification Service
 
 Issue #39 establishes the service runtime, database migration, private health
-probes, telemetry, and test pipeline. Event delivery, listing, unread counts,
-and mark-as-read are follow-up work.
+probes, telemetry, and test pipeline. Issue #40 adds session verification
+for the notification routes. Event delivery, listing, unread counts, and
+mark-as-read are follow-up work.
 
 The service uses Node.js 24 LTS to run JavaScript, TypeScript 5.9 to check
 types at build time, Express 5 to handle HTTP, and PostgreSQL 17 or 18 to
@@ -65,6 +66,64 @@ status, and duration using an allowlist of fields. The private Prometheus
 endpoint exposes request and server error counters and cumulative request
 duration in seconds. RabbitMQ exposes its own [Prometheus metrics](../../infra/broker/README.md).
 Broker availability is outside the synchronous readiness check.
+
+## Verify Notification sessions
+
+The Notification router passes each protected request through Identity's
+private `POST /internal/v1/auth/introspect` endpoint before the handler can
+access recipient data. When adding routes, mount them through the guarded
+router in `createApp` and use `response.locals.recipientId` to scope every
+storage operation. The guard gets that ID from Identity on every request.
+The public notification routes are scheduled for #42.
+
+Set `IDENTITY_BASE_URL` to Identity's private HTTP(S) origin (no path) and
+`NOTIFICATION_IDENTITY_SERVICE_KEY` to the same dedicated secret configured
+as `IDENTITY_NOTIFICATION_SERVICE_KEY` on Identity. Keep the secret in
+your ignored `.env` or deployment secret configuration. Use the private
+network and TLS when calling across hosts.
+
+A missing bearer returns 401 `AUTH_REQUIRED`. A revoked or expired session
+returns 401 `SESSION_INVALID`. Rejected service credentials, timeouts and
+other dependency failures return 503 `DEPENDENCY_UNAVAILABLE` with
+`Retry-After: 1`. The private POST has a two-second timeout per attempt
+and retries once on connection failure or HTTP 503. The unit and HTTP tests
+use controlled Identity responses and run in the existing CI workflow.
+
+### Check against real Identity
+
+Run from this directory with Identity running, a configured `.env`, and an
+application bearer obtained from your usual sign-in flow. Build the service
+using `npm run build`. In bash or zsh, define this probe:
+
+```sh
+probe_identity() {
+  printf 'Paste the application token (input hidden): '
+  read -r -s PROBE_TOKEN
+  printf '\n'
+  PROBE_TOKEN="$PROBE_TOKEN" node --env-file=.env - <<'NODE'
+const { randomUUID } = require('node:crypto');
+const { createIdentityClient } = require('./dist/identity.js');
+const introspect = createIdentityClient(
+  process.env.IDENTITY_BASE_URL,
+  process.env.NOTIFICATION_IDENTITY_SERVICE_KEY,
+);
+introspect('Bearer ' + process.env.PROBE_TOKEN, randomUUID())
+  .then(({ kind }) => console.log(kind));
+NODE
+  unset PROBE_TOKEN
+}
+```
+
+1. Run `probe_identity` with a valid token. Expect `verified`.
+2. Log out of that same session through the application, then run the probe
+   with the same token. Expect `invalid`.
+3. Sign in again, then run
+   `NOTIFICATION_IDENTITY_SERVICE_KEY=deliberately-invalid-demo-key probe_identity`
+   with the new valid token. Expect `credential_rejected`. This overrides
+   the key for the probe without changing `.env`.
+
+The probe prints only the outcome. Request tests verify how those outcomes
+map to public HTTP responses through the guard.
 
 ## Test
 
