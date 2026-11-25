@@ -1,0 +1,160 @@
+name: Deploy service
+
+# Deploys ONE already-published service image to the backend host. Started by hand
+# (Actions -> Deploy service -> Run workflow). Nothing here builds or tests an
+# image: it only deploys an image whose source commit already passed its own
+# service workflow, and it refuses everything else.
+#
+# One-time setup (repository owner; no values are stored in Git):
+#   1. Settings -> Environments -> create "production" (optionally add required reviewers).
+#   2. In that environment add the secrets DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY,
+#      DEPLOY_KNOWN_HOSTS (output of `ssh-keyscan <host>`) and the variable DEPLOY_PATH
+#      (the repository checkout on the host).
+#   3. On the host: clone the repository, run infra/scripts/setup_env.py, and
+#      `docker login ghcr.io` with a read-only package token so it can pull the images.
+# See "Deploying a tested image" in infra/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service to deploy
+        required: true
+        type: choice
+        options:
+          - gateway
+          - identity-workspace
+          - task
+      image:
+        description: Image to deploy, by digest (ghcr.io/<owner>/<repo>/<service>@sha256:...)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+  checks: read
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the image passed its checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require an immutable image of the selected service in this repository
+        env:
+          SERVICE: ${{ inputs.service }}
+          IMAGE: ${{ inputs.image }}
+        run: |
+          prefix="ghcr.io/${GITHUB_REPOSITORY,,}/$SERVICE@sha256:"
+          if [[ "$IMAGE" != "$prefix"* ]] || ! [[ "${IMAGE#"$prefix"}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::The image must be exactly ${prefix}<64 hex digits> (a digest, not a tag)."
+            exit 1
+          fi
+      - name: Read the commit the image was built from
+        id: source
+        env:
+          IMAGE: ${{ inputs.image }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull --quiet "$IMAGE" >/dev/null
+          sha=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")
+          docker logout ghcr.io
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The image has no org.opencontainers.image.revision label, so its source commit cannot be verified."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Image source commit: $sha"
+      - name: Require that commit to be on main
+        env:
+          SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          git merge-base --is-ancestor "$SHA" origin/main || {
+            echo "::error::Commit $SHA is not on main."
+            exit 1
+          }
+      - name: Require the service's checks to have succeeded on that commit
+        env:
+          SERVICE: ${{ inputs.service }}
+          SHA: ${{ steps.source.outputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "$SERVICE" in
+            gateway) required=$'Validate Nginx configuration\nGateway request-level tests\nBuild gateway image (amd64 and arm64)' ;;
+            identity-workspace) required=$'Identity required checks' ;;
+            task) required=$'Task unit, endpoint, and database tests\nBuild Task container' ;;
+          esac
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | "\(.name)\t\(.conclusion)"')
+          missing=0
+          while IFS= read -r name; do
+            if ! printf '%s\n' "$runs" | grep -Fxq "$name"$'\t'success; then
+              echo "::error::Required check '$name' did not succeed on $SHA."
+              missing=1
+            else
+              echo "OK: $name"
+            fi
+          done <<< "$required"
+          exit "$missing"
+
+  deploy:
+    name: Deploy to the backend host
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - name: Require the deployment target to be configured
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS DEPLOY_PATH; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Deployment target is not configured. Missing:$missing (see the header of this workflow). Nothing was deployed."
+            exit 1
+          fi
+      - name: Deploy over SSH (deploy.sh rolls back automatically if the service is unhealthy)
+        env:
+          SERVICE: ${{ inputs.service }}
+          IMAGE: ${{ inputs.image }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # Run the deployment scripts from the commit this workflow runs at.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            bash -s -- "$DEPLOY_PATH" "$GITHUB_SHA" "$SERVICE" "$IMAGE" <<'REMOTE'
+          set -eu
+          path=$1; sha=$2; service=$3; image=$4
+          cd "$path"
+          git fetch --quiet origin
+          git checkout --quiet --detach "$sha"
+          bash infra/scripts/deploy.sh deploy "$service" "$image"
+          bash infra/scripts/deploy.sh status
+          REMOTE
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

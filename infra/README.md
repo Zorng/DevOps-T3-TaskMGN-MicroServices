@@ -127,9 +127,56 @@ bash infra/scripts/check-events.sh
 # Same, plus a broker outage: events must stay pending, readiness must stay 200,
 # and the events must arrive after the broker returns.
 bash infra/scripts/check-events.sh --outage
+
+# Deployment automation: deploy each service by digest, refuse a tag, roll back a
+# deliberately broken image. Needs the stack built locally (up --build); uses a
+# throwaway registry on 127.0.0.1:5055 (set REGISTRY_PORT to change it).
+bash infra/scripts/check-deploy.sh
 ```
 
 Each prints `PASS`/`FAIL` per check and exits 0 only if everything passed. They put back anything they stopped and remove the test events they create. The same checks run in CI (`.github/workflows/infra.yml`).
+
+## Deploying a tested image
+
+`infra/scripts/deploy.sh` updates **one** service from an image that already passed its tests. It is what runs on the backend host; it also works on your computer.
+
+```bash
+bash infra/scripts/deploy.sh deploy gateway ghcr.io/<owner>/<repo>/gateway@sha256:<digest>
+bash infra/scripts/deploy.sh status      # recorded, previous and running image per service
+bash infra/scripts/deploy.sh rollback gateway
+bash infra/scripts/deploy.sh start       # start or refresh everything from the recorded images
+```
+
+Services: `gateway`, `identity-workspace`, `task`.
+
+What it guarantees:
+
+- **Immutable images only.** A tag such as `:main` is refused; the reference must end in `@sha256:<64 hex digits>`. An image that cannot be pulled changes nothing.
+- **One service at a time.** Only that service's containers are replaced. The other services, both databases and the broker keep running and keep their data.
+- **Health gate and automatic rollback.** After the swap the service must become healthy (gateway answers and still reaches Identity; Identity and Task report `/health/ready` 200). If not, the previous image is restored and the command exits non-zero (`1` = rolled back, `2` = nothing changed or the rollback itself failed and needs a person).
+- **Traceable.** The recorded and previous image of each service, and a log of every deployment and rollback, are kept in `infra/.deploy/` (ignored by Git).
+- **Secrets stay out of the images and out of Git.** They come from `infra/.env` and `infra/.secrets/` on the host and are never printed.
+
+**Migration order and rollback limits.** For Identity, the migration job (`alembic upgrade head`) runs with the *new* image **before** the old Identity container is replaced; a failed migration stops the deployment and leaves the running service in place. Task applies its own Flyway migrations when it starts. Migrations are **not** reversed by a rollback: it only returns to the previous image. That is safe only while the previous version works with the migrated schema, so schema changes must be backward compatible for one release (add before you use, remove only after nothing reads it). A migration that is not compatible needs a database restore or a forward fix, not `rollback`.
+
+On a deployment host always use `deploy.sh`, never `docker compose up --build`: a plain `up` does not know the recorded digests and would fall back to a local build.
+
+### Publishing and deploying through GitHub
+
+1. **Images.** On every push to `main`, after a service's own tests pass, its workflow publishes `ghcr.io/<owner>/<repo>/<service>:sha-<commit>` with the label `org.opencontainers.image.revision`. Identity and Gateway do this today. **Task's workflow does not publish yet**; its owner needs to add the same step.
+2. **Run "Deploy service"** (Actions tab, manual). Choose the service and paste the image **digest** reference. The workflow first checks that the image belongs to this repository, that its source commit is on `main`, and that the service's required checks succeeded on that commit. If any check is missing or failed, nothing is deployed.
+3. **Then it connects to the host** over SSH and runs `deploy.sh`.
+
+One-time setup by the repository owner (nothing below is stored in Git):
+
+| What | Where |
+|---|---|
+| Environment named `production` (optionally with required reviewers) | Settings, Environments |
+| Secrets `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` (output of `ssh-keyscan <host>`) | that environment |
+| Variable `DEPLOY_PATH` (the repository checkout on the host) | that environment |
+| On the host: clone the repository, run `python3 infra/scripts/setup_env.py`, and `docker login ghcr.io` with a read-only package token | the backend host |
+
+Until the host exists (issue #32) the workflow stops at "Require the deployment target to be configured" and deploys nothing. The deployment logic itself is proven by `infra/scripts/check-deploy.sh` (see above), which runs in CI.
 
 ## Sign-in and session checks (manual)
 
@@ -159,7 +206,9 @@ Recorded explicitly, as the issue requires. Nothing here is faked.
 | Event consumers | Not implemented (Notification, and Task's cleanup on workspace events) | Events reach `notifications.v1` and `task-cleanup.v1` (checked) but nothing consumes, deduplicates or acts on them. |
 | Sign-in and session/workspace checks | Manual | Need a real Google client ID and a browser sign-in. Not run in CI. |
 | Events created through public APIs | Not automated | `check-events.sh` writes events into the outboxes with the contract's example payloads, because creating them through the APIs needs a Google sign-in. |
-| Cloud deployment, public HTTPS | Not started | The local stack only. |
+| Deployment to the Oracle VM | Automation written and proven locally; not run against the VM | The VM does not exist yet (issue #32). The SSH step of `deploy.yml` is untested until then. |
+| Task image publishing | Not done | Task's workflow does not publish to the registry, so Task cannot be deployed through GitHub yet (the script works with any digest). |
+| Public HTTPS, certificates | Not started | The local stack only. |
 | Centralized logs and metrics | Not started | Use `docker compose logs` locally. |
 
 ## Troubleshooting

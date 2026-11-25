@@ -28,7 +28,7 @@ jobs:
         run: docker compose -f infra/compose.yaml config --quiet
       - name: Check shell scripts parse
         run: |
-          for script in infra/scripts/check.sh infra/scripts/check-events.sh infra/identity-db/init-wrapper.sh; do
+          for script in infra/scripts/check.sh infra/scripts/check-events.sh infra/scripts/deploy.sh infra/scripts/check-deploy.sh infra/identity-db/init-wrapper.sh; do
             bash -n "$script"
           done
       - name: Check no secrets are tracked
@@ -62,6 +62,10 @@ jobs:
         run: |
           bash infra/scripts/check-events.sh --outage | tee events.log
           test "$(grep -c '^  PASS' events.log)" -ge 40
+      - name: Deployment by digest, failed rollout and rollback
+        run: |
+          bash infra/scripts/check-deploy.sh | tee deploy.log
+          test "$(grep -c '^  PASS' deploy.log)" -ge 30
       - name: Show logs on failure
         if: failure()
         run: docker compose -f infra/compose.yaml logs --no-color --tail=200
