@@ -1,18 +1,22 @@
 import { Route, Routes } from 'react-router';
 import { AppShell } from './components/AppShell';
-import type { AppConfig } from './config';
+import { RequireAuth } from './components/RequireAuth';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage, NotificationsPage, WorkspacesPage } from './pages/PlaceholderPages';
+import { SignInPage } from './pages/SignInPage';
 
-export function App({ config }: { config: AppConfig }) {
-    return (
-        <Routes>
-            <Route element={<AppShell />}>
-                <Route index element={<HomePage config={config} />} />
-                <Route path="workspaces" element={<WorkspacesPage />} />
-                <Route path="notifications" element={<NotificationsPage />} />
-                <Route path="*" element={<NotFoundPage />} />
-            </Route>
-        </Routes>
-    );
+export function App() {
+  return (
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route path="sign-in" element={<SignInPage />} />
+        <Route element={<RequireAuth />}>
+          <Route index element={<HomePage />} />
+          <Route path="workspaces" element={<WorkspacesPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
+        </Route>
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
+  );
 }
