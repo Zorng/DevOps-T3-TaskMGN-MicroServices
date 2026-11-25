@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { ApiError } from '../api/errors';
 import { describeError } from '../api/messages';
 import { usePageLoader } from '../api/usePageLoader';
@@ -39,7 +39,15 @@ function limitMessage(owned: number): string {
     return `You own ${owned} of ${OWNED_WORKSPACE_LIMIT} workspaces. ${joinedNote}`;
 }
 
+function noticeFromState(state: unknown): string | null {
+    if (typeof state === 'object' && state !== null && 'notice' in state && typeof state.notice === 'string') {
+        return state.notice;
+    }
+    return null;
+}
+
 export function WorkspacesPage() {
+    const location = useLocation();
     const { client, service } = useAuth();
     const { items, status, error, hasMore, loadMore, reload } = usePageLoader<Workspace>(client, {
         path: '/workspaces',
@@ -48,7 +56,7 @@ export function WorkspacesPage() {
     const [ownedCount, setOwnedCount] = useState<number | null>(null);
     const [name, setName] = useState('');
     const [formError, setFormError] = useState<string | null>(null);
-    const [notice, setNotice] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(() => noticeFromState(location.state));
     const [submitting, setSubmitting] = useState(false);
     // Keeps the same attempt (and Idempotency-Key) across retries of the same name.
     const pending = useRef<PendingCreate | null>(null);

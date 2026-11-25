@@ -32,9 +32,21 @@ export function describeError(error: unknown, fallback: string = GENERIC_ERROR_M
             return 'The information you entered is not valid. Check it and try again.';
         case 'IDEMPOTENCY_IN_PROGRESS':
             return 'Your request is still being processed. Please wait a moment and try again.';
+        case 'VERSION_CONFLICT':
+            return 'This was changed by someone else since you loaded it. Review the latest version and try again.';
+        case 'FORBIDDEN':
+            return 'You do not have permission to do that in this workspace.';
+        case 'NOT_FOUND':
+            return 'This workspace is not available. It may have been deleted, or you may no longer have access.';
         case 'INTERNAL_ERROR':
             return 'The service ran into a problem. Please try again.';
         default:
             return fallback;
     }
+}
+
+/** The server's reason for one field of a VALIDATION_FAILED error, if it gave one. */
+export function fieldReason(error: unknown, field: string): string | undefined {
+    if (!(error instanceof ApiError) || error.code !== 'VALIDATION_FAILED') return undefined;
+    return error.details.find((detail) => detail.field === field)?.reason;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from './errors';
-import { describeError, GENERIC_ERROR_MESSAGE } from './messages';
+import { describeError, fieldReason, GENERIC_ERROR_MESSAGE } from './messages';
 
 const make = (code: string, status = 400, retryAfterSeconds?: number) =>
     new ApiError({ status, code, message: 'raw server text', retryAfterSeconds });
@@ -16,6 +16,9 @@ describe('describeError', () => {
         ['WORKSPACE_LIMIT_REACHED', 'maximum'],
         ['VALIDATION_FAILED', 'not valid'],
         ['IDEMPOTENCY_IN_PROGRESS', 'still being processed'],
+        ['VERSION_CONFLICT', 'changed by someone else'],
+        ['FORBIDDEN', 'permission'],
+        ['NOT_FOUND', 'not available'],
         ['INTERNAL_ERROR', 'problem'],
     ])('describes %s', (code, fragment) => {
         expect(describeError(make(code))).toContain(fragment);
@@ -36,5 +39,23 @@ describe('describeError', () => {
         expect(describeError(make('SOMETHING_NEW'))).toBe(GENERIC_ERROR_MESSAGE);
         expect(describeError(new Error('boom'), 'Custom fallback.')).toBe('Custom fallback.');
         expect(describeError(make('SOMETHING_NEW'), 'Custom fallback.')).toBe('Custom fallback.');
+    });
+});
+
+describe('fieldReason', () => {
+    it('returns the reason for one field of a validation error', () => {
+        const error = new ApiError({
+            status: 422,
+            code: 'VALIDATION_FAILED',
+            message: 'm',
+            details: [{ field: 'name', reason: 'Too long.' }],
+        });
+        expect(fieldReason(error, 'name')).toBe('Too long.');
+        expect(fieldReason(error, 'email')).toBeUndefined();
+    });
+
+    it('ignores other errors', () => {
+        expect(fieldReason(new ApiError({ status: 404, code: 'NOT_FOUND', message: 'm' }), 'name')).toBeUndefined();
+        expect(fieldReason(new Error('x'), 'name')).toBeUndefined();
     });
 });
