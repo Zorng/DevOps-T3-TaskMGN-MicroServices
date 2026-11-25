@@ -1,6 +1,6 @@
 # Frontend
 
-Status: framework selected and test pipeline in place (sub-issue #46). The API client, Google sign-in, and product screens follow in #47 onward; the current routes are placeholders.
+Status: framework and test pipeline in place (#46), gateway API client and Google sign-in working (#47). The workspace, board, task and notification screens follow in #48 onward; their routes are placeholders.
 
 The web app implements the screens and journeys in the [product specification](../docs/product-specification.md) against the gateway's [REST contracts](../api_contracts/README.md). It calls the public gateway (`/api/v1/...`) only. It never calls private service APIs, the message broker, or a database, and no backend credentials or private service keys belong in this directory.
 
@@ -22,7 +22,7 @@ Why this stack:
 - MSW lets screens be built and tested against contract-shaped responses while the backend services are unfinished.
 - React Router handles client-side navigation; Netlify rewrites every path to `index.html` so reloads on deep links work.
 
-Design constraints taken from `api_contracts/authentication.md`: the application session token will be held in memory only (no cookies, no `localStorage`), and a reload or expiry requires a new Google sign-in.
+Design constraints taken from `api_contracts/authentication.md`: the application session token is held in memory only (no cookies, no `localStorage`), so a reload or expiry requires a new Google sign-in.
 
 Mock responses exist only in tests (`src/test/`). The running application never imports MSW and does not present mock data as live backend integration.
 
@@ -35,12 +35,16 @@ Implemented (#46):
 - Reusable loading, empty, and error components with accessible roles and keyboard operation. No screen uses them yet.
 - Test tooling with a mocked gateway, and CI for type check, tests, and production build.
 
+Implemented (#47):
+
+- Gateway API client (`src/api`): bearer header, `Idempotency-Key` on creates with safe retry of the same key, `If-Match` and ETag handling for updates and deletes, cursor pagination, and mapping of the shared error envelope to typed errors with user-facing messages.
+- Google sign-in (`src/auth`): challenge, Google Identity Services popup, credential exchange, in-memory session with expiry handling, sign-out, and a protected-route guard.
+- The home page loads the signed-in user's profile and workspace count from `GET /me`.
+
 Not yet implemented (later sub-issues; the current routes are placeholders):
 
 | Area | Sub-issue |
 | --- | --- |
-| Gateway API client (bearer header, idempotency keys, `If-Match` and ETag handling, pagination, error mapping) | #47 |
-| Google sign-in, in-memory session, sign-out | #47 |
 | Workspace, membership, and invitation screens | #48 |
 | Board navigation and management | #49 |
 | Task creation, editing, assignment, and board moves | #50 |
@@ -79,12 +83,23 @@ Vite embeds every `VITE_*` variable in the browser bundle, so these values are p
 
 | Variable | Meaning |
 | --- | --- |
-| `VITE_API_BASE_URL` | Gateway base URL without a trailing slash. Defaults to `http://localhost:8080`. |
+| `VITE_API_BASE_URL` | Gateway base URL without a trailing slash. Defaults to `http://localhost:8080`. The local stack publishes the gateway on `http://127.0.0.1:8080`, so use that value in `.env.local`. |
 | `VITE_GOOGLE_CLIENT_ID` | Google OAuth web client ID. It must be the same client ID that Identity & Workspace validates as the token audience. No client secret is used. |
 
 `.env.example` documents both variables; real `.env*` files are git-ignored.
 
 Allowed origins: the gateway CORS configuration and the Google OAuth client must both allow `http://localhost:5173` (local development) and the production Netlify site URL.
+
+## Running against the local stack
+
+To sign in for real, run the backend stack and the frontend together.
+
+1. From the repository root, start the stack as described in [`infra/README.md`](../infra/README.md) (`python3 infra/scripts/setup_env.py`, then `docker compose -f infra/compose.yaml up -d --build --wait`).
+2. Put the Google OAuth client ID in `infra/.env` as `IDENTITY_GOOGLE_CLIENT_ID`, then run `docker compose -f infra/compose.yaml up -d --wait`. Without it, the sign-in endpoints answer `503` and the sign-in page shows "service temporarily unavailable".
+3. In `frontend/.env.local`, set `VITE_API_BASE_URL=http://127.0.0.1:8080` and `VITE_GOOGLE_CLIENT_ID` to the same client ID.
+4. Run `npm run dev` and open `http://localhost:5173`. Restart the dev server after changing `.env.local`.
+
+The Google client must list `http://localhost:5173` as an authorized JavaScript origin, and while the Google project is in testing mode your Google account must be a test user.
 
 ## Tests
 
@@ -110,15 +125,17 @@ Allowed origins: the gateway CORS configuration and the Google OAuth client must
 
 ```text
 frontend/
-  index.html            Vite entry page
-  vite.config.ts        build, dev server, and test configuration
-  netlify.toml          Netlify build settings
-  .env.example          public configuration placeholders
-  src/
-    main.tsx            entry point (router and config)
+    index.html            Vite entry page
+    vite.config.ts        build, dev server, and test configuration
+    netlify.toml          Netlify build settings
+    .env.example          public configuration placeholders
+src/
+    main.tsx            entry point (router, config, auth provider)
     App.tsx             route definitions
     config.ts           public configuration reader
-    components/         app shell and reusable loading, empty, and error states
-    pages/              placeholder pages until the product screens land
-    test/               test setup, MSW server, and default handlers
+    api/                gateway client, error mapping, idempotent creates, versioned updates, pagination
+    auth/               session store, sign-in service, Google Identity Services loader, auth provider
+    components/         app shell, route guard, auth controls, loading, empty and error states
+    pages/              home, sign-in and placeholder pages
+    test/               test setup, MSW server, default handlers, render helpers
 ```
