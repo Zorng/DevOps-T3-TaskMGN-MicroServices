@@ -26,3 +26,13 @@ export function errorBodyFixture(code: string, details: { field: string; reason:
         },
     };
 }
+
+export function memberFixture(overrides: Record<string, unknown> = {}) {
+    return {
+        membership_id: '00000000-0000-4000-8000-000000000010',
+        user: { id: MEMBER_ID, display_name: 'Dara' },
+        role: 'member',
+        joined_at: '2026-11-14T10:00:00Z',
+        ...overrides,
+    };
+}

@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { errorBodyFixture, WORKSPACE_ID, workspaceFixture } from '../test/fixtures';
 import { API, meHandler, renderApp } from '../test/renderApp';
 import { server } from '../test/server';
@@ -10,6 +10,11 @@ const wsUrl = `${API}/workspaces/${WORKSPACE_ID}`;
 const open = () => renderApp({ signedIn: true, path: `/workspaces/${WORKSPACE_ID}` });
 const getHandler = (overrides: Record<string, unknown> = {}, etag = '"2"') =>
     http.get(wsUrl, () => HttpResponse.json(workspaceFixture(overrides), { headers: { ETag: etag } }));
+
+// Every workspace page also loads its member list.
+beforeEach(() => {
+    server.use(http.get(`${wsUrl}/members`, () => HttpResponse.json({ items: [] })));
+});
 
 describe('WorkspacePage view', () => {
     it('shows the workspace, the role, the size and the owner controls', async () => {

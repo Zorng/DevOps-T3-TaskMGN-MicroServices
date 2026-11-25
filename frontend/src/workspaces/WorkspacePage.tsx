@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { ApiClient } from '../api/client';
-import { ApiError } from '../api/errors';
+import { isNotFound } from '../api/errors';
 import { describeError, fieldReason } from '../api/messages';
 import { isAmbiguousOutcome, isVersionConflict } from '../api/mutations';
 import { useAuth } from '../auth/AuthProvider';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingState } from '../components/LoadingState';
+import { MembersSection } from './MembersSection';
 import {
     checkWorkspaceName,
     deleteWorkspace,
@@ -26,10 +27,6 @@ type View =
     | { kind: 'error'; message: string };
 
 const LATEST_SHOWN = ' The latest version of the workspace is shown.';
-
-function isNotFound(error: unknown): boolean {
-    return error instanceof ApiError && error.code === 'NOT_FOUND';
-}
 
 async function loadView(client: ApiClient, id: string, signal?: AbortSignal): Promise<View> {
     try {
@@ -282,6 +279,15 @@ export function WorkspacePage() {
             ) : (
                 <p>Only the workspace owner can rename or delete it.</p>
             )}
+            <MembersSection
+                key={`members-${workspace.id}`}
+                workspace={workspace}
+                onChanged={refresh}
+                onGone={gone}
+                onLeft={() =>
+                navigate('/workspaces', { state: { notice: `You left “${workspace.name}”.` } })
+                }
+            />
         </>
     );
 }

@@ -38,6 +38,8 @@ export function describeError(error: unknown, fallback: string = GENERIC_ERROR_M
             return 'You do not have permission to do that in this workspace.';
         case 'NOT_FOUND':
             return 'This workspace is not available. It may have been deleted, or you may no longer have access.';
+        case 'OWNER_CANNOT_LEAVE':
+            return 'The owner cannot leave a workspace. Delete the workspace instead.';
         case 'INTERNAL_ERROR':
             return 'The service ran into a problem. Please try again.';
         default:

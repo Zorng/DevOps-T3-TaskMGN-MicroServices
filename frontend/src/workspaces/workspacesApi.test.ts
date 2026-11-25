@@ -4,13 +4,16 @@ import { createApiClient } from '../api/client';
 import { ApiError } from '../api/errors';
 import { isVersionConflict } from '../api/mutations';
 import { TEST_API_BASE_URL } from '../test/handlers';
-import { errorBodyFixture, WORKSPACE_ID, workspaceFixture } from '../test/fixtures';
+import { errorBodyFixture, memberFixture, MEMBER_ID, WORKSPACE_ID, workspaceFixture } from '../test/fixtures';
 import { server } from '../test/server';
 import {
     checkWorkspaceName,
     createWorkspaceAttempt,
     deleteWorkspace,
     getWorkspace,
+    leaveWorkspace,
+    listMembers,
+    removeMember,
     renameWorkspace,
 } from './workspacesApi';
 
@@ -146,5 +149,41 @@ describe('checkWorkspaceName', () => {
         // 100 emoji are 200 UTF-16 units but exactly 100 code points.
         expect(checkWorkspaceName('😀'.repeat(100)).ok).toBe(true);
         expect(checkWorkspaceName('😀'.repeat(101)).ok).toBe(false);
+    });
+});
+
+describe('members', () => {
+    it('lists and validates members', async () => {
+        server.use(http.get(`${workspaceUrl}/members`, () => HttpResponse.json({ items: [memberFixture()] })));
+        expect(await listMembers(client, WORKSPACE_ID)).toEqual([
+            {
+                membership_id: '00000000-0000-4000-8000-000000000010',
+                user: { id: MEMBER_ID, display_name: 'Dara' },
+                role: 'member',
+                joined_at: '2026-11-14T10:00:00Z',
+            },
+        ]);
+    });
+
+    it('rejects a member list with a malformed entry', async () => {
+        server.use(http.get(`${workspaceUrl}/members`, () => HttpResponse.json({ items: [{ role: 'admin' }] })));
+        await expect(listMembers(client, WORKSPACE_ID)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    });
+
+    it('removes a member by user id', async () => {
+        let path: string | null = null;
+        server.use(
+            http.delete(`${workspaceUrl}/members/${MEMBER_ID}`, ({ request }) => {
+                path = new URL(request.url).pathname;
+                return new HttpResponse(null, { status: 204 });
+            }),
+        );
+        await expect(removeMember(client, WORKSPACE_ID, MEMBER_ID)).resolves.toBeUndefined();
+        expect(path).toBe(`/api/v1/workspaces/${WORKSPACE_ID}/members/${MEMBER_ID}`);
+    });
+
+    it('leaves a workspace through the membership resource', async () => {
+        server.use(http.delete(`${workspaceUrl}/membership`, () => new HttpResponse(null, { status: 204 })));
+        await expect(leaveWorkspace(client, WORKSPACE_ID)).resolves.toBeUndefined();
     });
 });

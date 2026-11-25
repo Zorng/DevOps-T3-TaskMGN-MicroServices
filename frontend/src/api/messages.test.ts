@@ -19,6 +19,7 @@ describe('describeError', () => {
         ['VERSION_CONFLICT', 'changed by someone else'],
         ['FORBIDDEN', 'permission'],
         ['NOT_FOUND', 'not available'],
+        ['OWNER_CANNOT_LEAVE', 'cannot leave'],
         ['INTERNAL_ERROR', 'problem'],
     ])('describes %s', (code, fragment) => {
         expect(describeError(make(code))).toContain(fragment);

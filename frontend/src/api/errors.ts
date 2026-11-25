@@ -158,3 +158,8 @@ export function networkApiError(): ApiError {
         message: 'The service could not be reached.',
     });
 }
+
+/** True for 404 NOT_FOUND: the resource is missing, deleted, or hidden from this user. */
+export function isNotFound(error: unknown): boolean {
+    return error instanceof ApiError && error.code === 'NOT_FOUND';
+}
