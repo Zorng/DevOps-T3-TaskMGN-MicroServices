@@ -8,23 +8,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/health")
 public class HealthController {
-    private final ReadinessService readiness;
+  private final ReadinessService readiness;
 
-    public HealthController(ReadinessService readiness) {
-        this.readiness = readiness;
-    }
+  public HealthController(ReadinessService readiness) {
+    this.readiness = readiness;
+  }
 
-    @GetMapping("/live")
-    public HealthResponse live() {
-        return new HealthResponse("ok");
-    }
+  @GetMapping("/live")
+  public HealthResponse live() {
+    return new HealthResponse("ok");
+  }
 
-    @GetMapping("/ready")
-    public ResponseEntity<HealthResponse> ready() {
-        boolean ready = readiness.isReady();
-        return ResponseEntity.status(ready ? 200 : 503)
-                .body(new HealthResponse(ready ? "ok" : "unavailable"));
-    }
+  @GetMapping("/ready")
+  public ResponseEntity<HealthResponse> ready() {
+    boolean ready = readiness.isReady();
+    return ResponseEntity.status(ready ? 200 : 503)
+        .body(new HealthResponse(ready ? "ok" : "unavailable"));
+  }
 
-    public record HealthResponse(String status) {}
+  public record HealthResponse(String status) {}
 }

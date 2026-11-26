@@ -9,5 +9,5 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface RequireWorkspaceAccess {
-    boolean owner() default false;
+  boolean owner() default false;
 }
