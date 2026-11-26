@@ -35,6 +35,8 @@ describe('SignInPage', () => {
         let exchanged: unknown;
         server.use(
             challengeHandler(),
+            meHandler(),
+            http.get(`${API}/workspaces`, () => HttpResponse.json({ items: [], next_cursor: null })),
             http.post(`${API}/auth/google/exchange`, async ({ request }) => {
                 exchanged = await request.json();
                 return HttpResponse.json(sessionBody());
