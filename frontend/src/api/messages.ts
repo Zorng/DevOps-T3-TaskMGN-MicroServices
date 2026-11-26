@@ -40,6 +40,18 @@ export function describeError(error: unknown, fallback: string = GENERIC_ERROR_M
             return 'This workspace is not available. It may have been deleted, or you may no longer have access.';
         case 'OWNER_CANNOT_LEAVE':
             return 'The owner cannot leave a workspace. Delete the workspace instead.';
+        case 'USER_NOT_FOUND':
+            return 'No registered user has that email address. They need to sign in to this app once before they can be invited.';
+        case 'EMAIL_AMBIGUOUS':
+            return 'That email address matches more than one account, so it cannot be used to invite someone.';
+        case 'ALREADY_MEMBER':
+            return 'That person is already a member of this workspace.';
+        case 'INVITATION_ALREADY_PENDING':
+            return 'That person already has a pending invitation to this workspace.';
+        case 'MEMBER_LIMIT_REACHED':
+            return 'This workspace already has the maximum of 20 members. Invitations cannot be accepted until a member leaves or is removed.';
+        case 'INVITATION_NOT_PENDING':
+            return 'This invitation has already been accepted, declined or cancelled, so it cannot be changed.';
         case 'INTERNAL_ERROR':
             return 'The service ran into a problem. Please try again.';
         default:

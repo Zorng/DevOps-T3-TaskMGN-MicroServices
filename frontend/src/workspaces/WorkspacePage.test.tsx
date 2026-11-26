@@ -13,7 +13,10 @@ const getHandler = (overrides: Record<string, unknown> = {}, etag = '"2"') =>
 
 // Every workspace page also loads its member list.
 beforeEach(() => {
-    server.use(http.get(`${wsUrl}/members`, () => HttpResponse.json({ items: [] })));
+    server.use(
+        http.get(`${wsUrl}/members`, () => HttpResponse.json({ items: [] })),
+        http.get(`${wsUrl}/invitations`, () => HttpResponse.json({ items: [], next_cursor: null })),
+    );
 });
 
 describe('WorkspacePage view', () => {

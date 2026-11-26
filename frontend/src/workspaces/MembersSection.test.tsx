@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
 import {
     errorBodyFixture,
     memberFixture,
@@ -38,6 +38,9 @@ const workspaceHandler = (overrides: Record<string, unknown> = {}, etag = '"2"')
     http.get(wsUrl, () => HttpResponse.json(workspaceFixture(overrides), { headers: { ETag: etag } }));
 const membersHandler = (items: unknown[]) => http.get(membersUrl, () => HttpResponse.json({ items }));
 const memberList = () => screen.findByRole('list', { name: 'Workspace members' });
+beforeEach(() => {
+    server.use(http.get(`${wsUrl}/invitations`, () => HttpResponse.json({ items: [], next_cursor: null })));
+});
 
 describe('MembersSection view', () => {
     it('lists members with roles and gives the owner Remove only for non-owners', async () => {
@@ -74,7 +77,8 @@ describe('MembersSection view', () => {
         server.use(workspaceHandler({ member_count: 20 }), membersHandler(twenty));
         open();
         await memberList();
-        expect(screen.getByText(/maximum of 20 members/)).toHaveTextContent('do not reserve slots');
+        const section = screen.getByRole('region', { name: 'Members' });
+        expect(within(section).getByText(/maximum of 20 members/)).toHaveTextContent('do not reserve slots');
     });
 
     it('shows a loading state, then an error with a retry', async () => {

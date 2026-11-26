@@ -1,6 +1,7 @@
 export const OWNER_ID = '00000000-0000-4000-8000-000000000001';
 export const MEMBER_ID = '00000000-0000-4000-8000-000000000002';
 export const WORKSPACE_ID = '00000000-0000-4000-8000-000000000003';
+export const INVITATION_ID = '00000000-0000-4000-8000-000000000008';
 
 export function workspaceFixture(overrides: Record<string, unknown> = {}) {
     return {
@@ -35,4 +36,18 @@ export function memberFixture(overrides: Record<string, unknown> = {}) {
         joined_at: '2026-11-14T10:00:00Z',
         ...overrides,
     };
+}
+
+export function invitationFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: INVITATION_ID,
+    workspace_id: WORKSPACE_ID,
+    workspace_name: 'DevOps Team',
+    inviter: { id: OWNER_ID, display_name: 'Example Owner' },
+    recipient: { id: MEMBER_ID, display_name: 'Dara' },
+    status: 'pending',
+    created_at: '2026-11-14T10:00:00Z',
+    updated_at: '2026-11-14T10:00:00Z',
+    ...overrides,
+  };
 }

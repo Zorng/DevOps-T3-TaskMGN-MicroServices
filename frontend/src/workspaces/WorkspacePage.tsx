@@ -9,6 +9,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingState } from '../components/LoadingState';
 import { MembersSection } from './MembersSection';
+import { InvitationsSection } from './InvitationsSection';
 import {
     checkWorkspaceName,
     deleteWorkspace,
@@ -274,6 +275,12 @@ export function WorkspacePage() {
                         onDeleted={() =>
                             navigate('/workspaces', { state: { notice: `Workspace “${workspace.name}” deleted.` } })
                         }
+                    />
+                    <InvitationsSection
+                        key={`invitations-${workspace.id}`}
+                        workspace={workspace}
+                        onChanged={refresh}
+                        onGone={gone}
                     />
                 </>
             ) : (

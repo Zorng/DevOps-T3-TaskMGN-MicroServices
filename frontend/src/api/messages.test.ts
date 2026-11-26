@@ -20,6 +20,12 @@ describe('describeError', () => {
         ['FORBIDDEN', 'permission'],
         ['NOT_FOUND', 'not available'],
         ['OWNER_CANNOT_LEAVE', 'cannot leave'],
+        ['USER_NOT_FOUND', 'No registered user'],
+        ['EMAIL_AMBIGUOUS', 'more than one account'],
+        ['ALREADY_MEMBER', 'already a member'],
+        ['INVITATION_ALREADY_PENDING', 'pending invitation'],
+        ['MEMBER_LIMIT_REACHED', 'maximum of 20 members'],
+        ['INVITATION_NOT_PENDING', 'already been accepted'],
         ['INTERNAL_ERROR', 'problem'],
     ])('describes %s', (code, fragment) => {
         expect(describeError(make(code))).toContain(fragment);
