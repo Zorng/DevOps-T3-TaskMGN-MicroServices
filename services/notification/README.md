@@ -1,31 +1,366 @@
 # Notification Service
 
-Status: implementation not started; language/framework/database choice is open.
+Issue #39 establishes the service runtime, database migration, private health
+probes, telemetry, and test pipeline. Issue #40 adds session verification,
+#41 adds event processing, #42 adds the public notification API and #43
+consumes events from RabbitMQ.
 
-## Scope
+The service uses Node.js 24 LTS to run JavaScript, TypeScript 5.9 to check
+types at build time, Express 5 to handle HTTP, and PostgreSQL 17 or 18 to
+store Notification data in a dedicated database. The built-in Node.js test
+runner runs the test suites. npm installs the exact versions in the lockfile.
 
-Recipient-specific in-app notifications, unread counts, read state, and notification-event deduplication.
+## Install and run locally
 
-Introspect sessions through the private Identity API. Consume notification events transactionally and acknowledge only after commit. There is no public notification creation endpoint.
+Run from `services/notification`:
+
+```sh
+npm ci
+npm run build
+npm start
+```
+
+In another terminal:
+
+```sh
+curl -i http://127.0.0.1:8002/health/live
+```
+
+Liveness returns HTTP 200 and `{"status":"ok"}` as soon as the process can
+respond. Health responses include `X-Request-ID` and `Cache-Control: no-store`.
+
+## Connect PostgreSQL and Identity
+
+Provision a dedicated PostgreSQL database and role that can create objects in
+that database. Copy `.env.example` to `.env` and set these values:
+
+| Variable | Purpose |
+| --- | --- |
+| `HOST` | Listen address. Defaults to `127.0.0.1` locally. |
+| `PORT` | Listen port. Defaults to `8002`. |
+| `DATABASE_URL` | PostgreSQL connection URL for the service-owned database. |
+| `IDENTITY_READY_URL` | Identity's private readiness URL, such as `http://127.0.0.1:8000/health/ready` when running on the host. |
+| `NOTIFICATION_CURSOR_SECRET` | At least 32 random bytes used to sign list cursors, for example from `openssl rand -base64 32`. |
+
+With Identity running and the service built, run:
+
+```sh
+node --env-file=.env dist/migrate.js
+node --env-file=.env dist/server.js
+```
+
+The migrator applies each `migrations/NNN_*.sql` file once, in order, in a
+single transaction, and can be rerun. Readiness returns 200 and `{"status":"ok"}` when PostgreSQL can
+query the migrated table and Identity returns 200. Unavailable or
+unconfigured dependencies return 503 and `{"status":"unavailable"}`.
+
+```sh
+curl -i http://127.0.0.1:8002/health/ready
+curl -i http://127.0.0.1:8002/metrics
+```
+
+The service forwards the correlation UUID to Identity. It replaces missing
+or invalid IDs, caps request bodies at 64 KiB, and returns the shared JSON
+error envelope for HTTP input failures. JSON request logs record the ID,
+status, and duration using an allowlist of fields. The private Prometheus
+endpoint exposes request and server error counters and cumulative request
+duration in seconds. RabbitMQ exposes its own [Prometheus metrics](../../infra/broker/README.md).
+Broker availability is outside the synchronous readiness check.
+
+## Verify Notification sessions
+
+The Notification router passes each protected request through Identity's
+private `POST /internal/v1/auth/introspect` endpoint before the handler can
+access recipient data. When adding routes, mount them through the guarded
+router in `createApp` and use `response.locals.recipientId` to scope every
+storage operation. The guard gets that ID from Identity on every request.
+
+Set `IDENTITY_BASE_URL` to Identity's private HTTP(S) origin (no path) and
+`NOTIFICATION_IDENTITY_SERVICE_KEY` to the same dedicated secret configured
+as `IDENTITY_NOTIFICATION_SERVICE_KEY` on Identity. Keep the secret in
+your ignored `.env` or deployment secret configuration. Use the private
+network and TLS when calling across hosts.
+
+A missing bearer returns 401 `AUTH_REQUIRED`. A revoked or expired session
+returns 401 `SESSION_INVALID`. Rejected service credentials, timeouts and
+other dependency failures return 503 `DEPENDENCY_UNAVAILABLE` with
+`Retry-After: 1`. The private POST has a two-second timeout per attempt
+and retries once on connection failure or HTTP 503. The unit and HTTP tests
+use controlled Identity responses and run in the existing CI workflow.
+
+### Check against real Identity
+
+Run from this directory with Identity running, a configured `.env`, and an
+application bearer obtained from your usual sign-in flow. Build the service
+using `npm run build`. In bash or zsh, define this probe:
+
+```sh
+probe_identity() {
+  printf 'Paste the application token (input hidden): '
+  read -r -s PROBE_TOKEN
+  printf '\n'
+  PROBE_TOKEN="$PROBE_TOKEN" node --env-file=.env - <<'NODE'
+const { randomUUID } = require('node:crypto');
+const { createIdentityClient } = require('./dist/identity.js');
+const introspect = createIdentityClient(
+  process.env.IDENTITY_BASE_URL,
+  process.env.NOTIFICATION_IDENTITY_SERVICE_KEY,
+);
+introspect('Bearer ' + process.env.PROBE_TOKEN, randomUUID())
+  .then(({ kind }) => console.log(kind));
+NODE
+  unset PROBE_TOKEN
+}
+```
+
+1. Run `probe_identity` with a valid token. Expect `verified`.
+2. Log out of that same session through the application, then run the probe
+   with the same token. Expect `invalid`.
+3. Sign in again, then run
+   `NOTIFICATION_IDENTITY_SERVICE_KEY=deliberately-invalid-demo-key probe_identity`
+   with the new valid token. Expect `credential_rejected`. This overrides
+   the key for the probe without changing `.env`.
+
+The probe prints only the outcome. Request tests verify how those outcomes
+map to public HTTP responses through the guard.
+
+## Test
+
+`npm test` builds the service and runs the unit and request suites without
+external services. Use `npm run test:unit` or `npm run test:request` after a
+build to run an individual suite.
+
+For PostgreSQL integration tests, export `DATABASE_URL` for a disposable
+database and run:
+
+```sh
+npm run build
+npm run migrate
+npm run migrate
+npm run test:integration
+```
+
+The integration suite starts a controlled Identity health server, verifies
+readiness and recovery, and checks recipient deduplication in PostgreSQL.
+GitHub Actions runs all three suites before building and smoke-testing the
+image.
+
+## Notification API
+
+All three routes run behind the session guard and use only the recipient ID
+that Identity returns. There is no public create endpoint; notifications come
+from events.
+
+| Route | Result |
+| --- | --- |
+| `GET /api/v1/notifications` | Page of the caller's notifications, newest first (`created_at`, then `id`, descending). Accepts `limit` (1-100, default 20), `cursor` and `unread_only` (`true` or `false`). |
+| `GET /api/v1/notifications/unread-count` | `{"count": n}`, counted at read time |
+| `POST /api/v1/notifications/{notification_id}/read` | Sets `read_at` on the first call and returns the notification. Repeats keep the first `read_at`. |
+
+- Any other query parameter, a repeated parameter or a request body returns
+  400 `MALFORMED_REQUEST`. A non-JSON body returns 415.
+- `next_cursor` is an HMAC-signed token bound to the recipient and the
+  `unread_only` value. Using it for another recipient or filter, or changing
+  it, returns 400 `INVALID_CURSOR`. The last page has `next_cursor: null`.
+- Another recipient's notification, or one that does not exist, returns 404
+  `NOT_FOUND`.
+- Without a database or a cursor secret of at least 32 bytes, the routes
+  return 503 `DEPENDENCY_UNAVAILABLE` with `Retry-After: 1`.
+- Notifications are historical. Their IDs grant no access to the invitation,
+  task or comment; the owning service checks access when they are opened.
+
+Migration 003 stores `created_at` and `read_at` at millisecond precision so
+API timestamps and cursor positions match exactly, and adds indexes for the
+recipient list and unread count.
+
+Example, with the service running and a valid application token:
+
+```sh
+TOKEN='paste-application-token'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8002/api/v1/notifications?limit=2&unread_only=true'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8002/api/v1/notifications?limit=2&cursor=NEXT_CURSOR'
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8002/api/v1/notifications/unread-count
+curl -s -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8002/api/v1/notifications/NOTIFICATION_ID/read
+```
+
+Until broker consumption exists, seed an assignment notification for the
+signed-in user (their ID is `user.id` from `GET /api/v1/me` on Identity):
+
+```sh
+RECIPIENT_ID='your-user-id' node --env-file=.env -e "
+const { randomUUID } = require('node:crypto');
+const [, event] = require('../../api_contracts/examples/events.json');
+const { createPool } = require('./dist/dependencies.js');
+const { processEvent } = require('./dist/processing.js');
+const pool = createPool(process.env.DATABASE_URL);
+event.id = randomUUID();
+event.data.recipient_id = process.env.RECIPIENT_ID;
+processEvent(pool, JSON.stringify(event)).then(console.log).finally(() => pool.end());
+"
+```
+
+Request tests validate every response against the Notification OpenAPI
+schemas and cover authentication, recipient isolation and validation for each
+route. Integration tests cover paging with tied timestamps, the unread
+filter, exact counts and concurrent mark-as-read against PostgreSQL.
+
+## Process notification events
+
+`processEvent(pool, message)` in `src/processing.ts` turns one broker message
+into a stored notification. The broker consumer below calls it for each
+delivery; tests and local seeding can also call it directly.
+
+It accepts `invitation.created.v1`, `task.assigned.v1` and
+`task.comment_mentioned.v1`. Messages are validated against
+`src/contracts/event.schema.json`, a copy of the shared event schema that a
+unit test keeps in sync. The schema also fixes the producer for each type.
+
+| Outcome | Result |
+| --- | --- |
+| New event | `created`: one unread notification for the recipient |
+| Actor is the recipient | `suppressed`: marked processed, no notification |
+| Event already processed | `duplicate`: no change |
+| Malformed, oversized, unsupported or wrong producer | throws `InvalidEventError` before any write; do not retry |
+| Database failure | throws; nothing is committed, so retry the same message |
+
+The processed-event marker in `processed_events`, keyed by consumer name and
+event ID, and the notification commit in one transaction. A replay after
+commit, or concurrent copies of one event, therefore create one notification.
+Notifications keep IDs and the actor's display name only. They are historical
+records and do not grant access to the invitation, task or comment. Markers
+and notifications are kept for the project lifetime.
+
+To reproduce against a disposable database:
+
+```sh
+docker run -d --rm --name notification-test-db -p 127.0.0.1:55432:5432 \
+  -e POSTGRES_DB=notification -e POSTGRES_USER=notification_app -e POSTGRES_PASSWORD=test-only postgres:17
+export DATABASE_URL=postgresql://notification_app:test-only@127.0.0.1:55432/notification
+npm run build && npm run migrate && npm run test:integration
+docker exec notification-test-db psql -U notification_app -d notification \
+  -c 'SELECT type, recipient_id, task_id, read_at FROM notification_service.notifications LIMIT 5'
+docker stop notification-test-db
+```
+
+The integration tests cover every event type, replay, six concurrent
+deliveries, self-suppression, rollback before commit and invalid events.
+
+## Consume events from RabbitMQ
+
+The service starts a consumer when `DATABASE_URL`, `BROKER_HOST` and
+`BROKER_PASSWORD` are set; otherwise it logs `consumer_disabled` and serves
+the API only. It connects as the `notification` broker user, which may only
+read `notifications.v1` and publish to the `retry` and `dead-letter`
+exchanges. The broker topology and users come from
+[infra/broker](../../infra/broker/README.md); the consumer never declares
+queues or exchanges.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BROKER_HOST` | none | Broker host, `broker` on the private network |
+| `BROKER_PORT` | `5672` | AMQP port |
+| `BROKER_VHOST` | `taskmgn` | Virtual host |
+| `BROKER_USERNAME` | `notification` | Service account |
+| `BROKER_PASSWORD` | none | Same value as `BROKER_NOTIFICATION_PASSWORD` in the broker environment |
+| `BROKER_TLS` | `false` | Use `amqps` when the broker is reached across networks |
+
+Replicas share `notifications.v1` as competing consumers with a prefetch of
+10. Each replica handles its deliveries one at a time and acknowledges a
+message only after `processEvent` commits.
+
+| Result | What the consumer does |
+| --- | --- |
+| `created`, `suppressed` or `duplicate` | Acknowledge |
+| `InvalidEventError` or an invalid `x-attempt` header | Forward to `dead-letter` at once, then acknowledge |
+| Other error on attempt 1-5 | Forward to `notifications.v1.retry.<5s, 30s, 2m, 10m, 30m>` with `x-attempt` + 1, then acknowledge |
+| Other error on attempt 6 | Forward to `dead-letter`, then acknowledge |
+
+Forwards keep the message ID, type, body and headers, and use persistent
+delivery, publisher confirms and `mandatory`. If a forward is not confirmed
+within 5 seconds, is negatively confirmed or is returned as unroutable, the
+original is not acknowledged; the consumer closes its connection so the broker
+redelivers the message, then reconnects after 5 seconds. A crash before commit
+redelivers the event for normal processing, and a crash after commit
+redelivers it as a harmless duplicate.
+
+Consumer logs are JSON lines carrying `event_id`, `request_id`, `type`,
+`attempt` and the outcome, delay or reason. They never include message bodies,
+broker credentials or error text. `/metrics` adds these counters:
+
+| Metric | Counts |
+| --- | --- |
+| `notification_consumer_events_total{outcome}` | Acknowledged `created`, `suppressed` and `duplicate` results |
+| `notification_consumer_invalid_events_total` | Malformed or unsupported messages |
+| `notification_consumer_processing_failures_total` | Transient processing failures |
+| `notification_consumer_retries_total` | Messages sent to a delay queue |
+| `notification_consumer_dead_letters_total` | Messages sent to `notifications.v1.dlq` |
+| `notification_consumer_disconnects_total` | Lost broker connections |
+
+Queue depth for `notifications.v1`, its delay queues and its dead-letter queue
+is on the broker's own Prometheus endpoint.
+
+### Recover dead letters
+
+Find out why the messages failed from the `event_dead_lettered` logs, fix the
+cause, then replay from the repository root with the broker admin account
+(create `.venv` as described in the [broker README](../../infra/broker/README.md#dead-letters-inspect-and-replay)):
+
+```sh
+export BROKER_ADMIN_USER=... BROKER_ADMIN_PASSWORD=...   # from infra/broker/.env
+.venv/bin/python infra/broker/scripts/replay_dead_letters.py notifications.v1 --dry-run
+.venv/bin/python infra/broker/scripts/replay_dead_letters.py notifications.v1 --limit 10
+```
+
+Replayed messages keep their event ID, so an event that was already processed
+is acknowledged as a duplicate and creates no second notification. Malformed
+events fail again; inspect and remove them in the management UI instead.
+
+### Broker tests
+
+`npm run test:broker` needs a provisioned broker and a migrated database. From
+the repository root, with `infra/broker/.env` created from its example:
+
+```sh
+docker compose -f infra/broker/compose.yaml up -d --wait broker
+docker compose -f infra/broker/compose.yaml --profile init run --rm broker-init
+cd services/notification
+set -a; . ../../infra/broker/.env; set +a
+export BROKER_HOST=127.0.0.1 BROKER_PASSWORD="$BROKER_NOTIFICATION_PASSWORD"
+export DATABASE_URL=postgresql://notification_app:test-only@127.0.0.1:55432/notification
+npm run build && npm run migrate && npm run test:broker
+```
+
+The tests purge the `notifications.v1` queues, so do not run them against a
+broker with real traffic. They cover acknowledgement after commit, redelivered
+duplicates, a crash before commit, a crash after commit before
+acknowledgement, a database outage retried through the 5-second delay queue,
+poison messages, dead-lettering after the sixth failure with a replay that
+creates one notification, reconnecting after the broker drops the connection,
+and two competing consumers. GitHub Actions starts and provisions a disposable
+broker for them.
+
+## Container
+
+```sh
+docker build -t notification:local .
+docker run --rm -p 127.0.0.1:8002:8002 notification:local
+```
+
+Use the liveness curl command above to check the container. For readiness,
+use a container network that can reach PostgreSQL and Identity and set the
+URLs in the environment file to addresses reachable from that network.
+Apply migrations with a one-shot container on that network:
+
+```sh
+docker run --rm --network notification-network --env-file .env notification:local node dist/migrate.js
+docker run --rm --network notification-network --env-file .env -e HOST=0.0.0.0 -p 127.0.0.1:8002:8002 notification:local
+```
+
+Keep health and metrics routes on the private service network.
 
 ## Contracts
 
-- [Public REST contract](../../api_contracts/openapi/notification.openapi.json)
-- [Authentication](../../api_contracts/authentication.md)
-- [Cross-service workflows](../../api_contracts/workflows.md)
+- [Notification OpenAPI contract](../../api_contracts/openapi/notification.openapi.json)
+- [Private Identity OpenAPI contract](../../api_contracts/openapi/identity-internal.openapi.json)
+- [Shared HTTP conventions](../../api_contracts/conventions.md)
 - [Event schemas and delivery](../../api_contracts/events/README.md)
-- [Acceptance scenarios](../../api_contracts/acceptance-scenarios.md)
-
-## Implementation layout
-
-Keep this service's source, tests, dependency manifest/lockfile, database migrations, Dockerfile, and environment example in this directory. The internal layout can follow the selected framework's conventions. This directory is the service's container build context.
-
-The service owns its database and accesses other services through contracts. Implement `/health/live` and `/health/ready`, structured logs, metrics, and the required publication/consumption reliability behavior. Build ARM64-compatible images if deployed on Oracle ARM instances.
-
-Replace this status with the actual runtime requirements and exact install, test, migration, build, and local run commands when implementation begins. Do not present placeholder commands as runnable.
-
-## Required tests and CI
-
-Every implemented endpoint needs dedicated unit tests and request-level HTTP tests covering successful behavior and applicable failure cases. Include private routes/health probes and event-processing tests where applicable. Mock external collaborators in unit tests; verify persistence and transaction behavior separately with a disposable test database.
-
-Add documented, non-interactive test commands and real CI jobs in the same PR as the service implementation. Test failures and unexpectedly empty suites must fail CI. Follow the shared [testing and CI policy](../../CONTRIBUTING.md#endpoint-tests-and-ci-requirements). Framework/test-runner selection remains open.
