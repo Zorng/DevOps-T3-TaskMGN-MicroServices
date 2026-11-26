@@ -15,6 +15,7 @@ export function AppShell() {
                             Home
                         </NavLink>
                         <NavLink to="/workspaces">Workspaces</NavLink>
+                        <NavLink to="/invitations">Invitations</NavLink>
                         <NavLink to="/notifications">Notifications</NavLink>
                     </nav>
                 )}

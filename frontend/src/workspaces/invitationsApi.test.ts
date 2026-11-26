@@ -4,7 +4,13 @@ import { createApiClient } from '../api/client';
 import { TEST_API_BASE_URL } from '../test/handlers';
 import { errorBodyFixture, INVITATION_ID, invitationFixture, WORKSPACE_ID } from '../test/fixtures';
 import { server } from '../test/server';
-import { cancelInvitation, checkInviteEmail, createInvitationAttempt } from './invitationsApi';
+import {
+    cancelInvitation,
+    checkInviteEmail,
+    createInvitationAttempt,
+    MY_INVITATIONS_PATH,
+    respondToInvitation,
+} from './invitationsApi';
 
 const client = createApiClient({ baseUrl: TEST_API_BASE_URL, getToken: () => 'test-token' });
 const url = (path: string) => `${TEST_API_BASE_URL}/api/v1${path}`;
@@ -109,5 +115,62 @@ describe('checkInviteEmail', () => {
 
     it('rejects an address over 254 characters', () => {
         expect(checkInviteEmail(`${'a'.repeat(250)}@example.com`).ok).toBe(false);
+    });
+});
+
+describe('respondToInvitation', () => {
+    it('uses the contract path for listing my invitations', () => {
+        expect(MY_INVITATIONS_PATH).toBe('/invitations');
+    });
+
+    it.each(['accept', 'decline'] as const)('posts {"action":"%s"} without an Idempotency-Key', async (action) => {
+        let seen: { path: string; body: unknown; key: string | null; ifMatch: string | null } | undefined;
+        server.use(
+            http.post(url(`/invitations/${INVITATION_ID}/response`), async ({ request }) => {
+                seen = {
+                    path: new URL(request.url).pathname,
+                    body: await request.json(),
+                    key: request.headers.get('idempotency-key'),
+                    ifMatch: request.headers.get('if-match'),
+                };
+                return HttpResponse.json(invitationFixture({ status: action === 'accept' ? 'accepted' : 'declined' }));
+            }),
+        );
+        const invitation = await respondToInvitation(client, INVITATION_ID, action);
+        expect(seen?.path).toBe(`/api/v1/invitations/${INVITATION_ID}/response`);
+        expect(seen?.body).toEqual({ action });
+        expect(seen?.key).toBeNull();
+        expect(seen?.ifMatch).toBeNull();
+        expect(invitation.status).toBe(action === 'accept' ? 'accepted' : 'declined');
+    });
+
+    it('keeps the workspace at capacity as a 409 with its code', async () => {
+        server.use(
+            http.post(url(`/invitations/${INVITATION_ID}/response`), () =>
+                HttpResponse.json(errorBodyFixture('MEMBER_LIMIT_REACHED'), { status: 409 }),
+            ),
+        );
+        await expect(respondToInvitation(client, INVITATION_ID, 'accept')).rejects.toMatchObject({
+            status: 409,
+            code: 'MEMBER_LIMIT_REACHED',
+        });
+    });
+
+    it('surfaces a conflicting terminal outcome as INVITATION_NOT_PENDING', async () => {
+        server.use(
+            http.post(url(`/invitations/${INVITATION_ID}/response`), () =>
+                HttpResponse.json(errorBodyFixture('INVITATION_NOT_PENDING'), { status: 409 }),
+            ),
+        );
+        await expect(respondToInvitation(client, INVITATION_ID, 'decline')).rejects.toMatchObject({
+            code: 'INVITATION_NOT_PENDING',
+        });
+    });
+
+    it('rejects a response that is not an invitation', async () => {
+        server.use(http.post(url(`/invitations/${INVITATION_ID}/response`), () => HttpResponse.json({ ok: true })));
+        await expect(respondToInvitation(client, INVITATION_ID, 'accept')).rejects.toMatchObject({
+            code: 'INVALID_RESPONSE',
+        });
     });
 });

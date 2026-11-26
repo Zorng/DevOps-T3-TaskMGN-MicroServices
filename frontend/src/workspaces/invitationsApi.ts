@@ -94,3 +94,25 @@ export function createInvitationAttempt(client: ApiClient, workspaceId: string, 
 export async function cancelInvitation(client: ApiClient, invitationId: string): Promise<Invitation> {
     return toInvitation(await client.post<unknown>(`/invitations/${encodeURIComponent(invitationId)}/cancel`));
 }
+
+export type InvitationAction = 'accept' | 'decline';
+
+/** Invitations addressed to the signed-in user (paginated, newest first, optional `status` filter). */
+export const MY_INVITATIONS_PATH = '/invitations';
+
+/**
+ * Recipient only. Accept and decline are state-based, so they need no Idempotency-Key or If-Match,
+ * and repeating the same action after an unclear failure is safe: the server returns the same
+ * terminal record without a second side effect. A different terminal outcome is 409 INVITATION_NOT_PENDING.
+ */
+export async function respondToInvitation(
+    client: ApiClient,
+    invitationId: string,
+    action: InvitationAction,
+): Promise<Invitation> {
+    return toInvitation(
+        await client.post<unknown>(`/invitations/${encodeURIComponent(invitationId)}/response`, {
+            body: { action },
+        }),
+    );
+}

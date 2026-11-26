@@ -6,6 +6,7 @@ import { NotFoundPage, NotificationsPage } from './pages/PlaceholderPages';
 import { WorkspacesPage } from './workspaces/WorkspacesPage';
 import { WorkspacePage } from './workspaces/WorkspacePage';
 import { SignInPage } from './pages/SignInPage';
+import { MyInvitationsPage } from './workspaces/InvitationsPage';
 
 export function App() {
     return (
@@ -16,6 +17,7 @@ export function App() {
                     <Route index element={<HomePage />} />
                     <Route path="workspaces" element={<WorkspacesPage />} />
                     <Route path="workspaces/:workspaceId" element={<WorkspacePage />} />
+                    <Route path="invitations" element={<MyInvitationsPage />} />
                     <Route path="notifications" element={<NotificationsPage />} />
                 </Route>
                 <Route path="*" element={<NotFoundPage />} />

@@ -1,6 +1,6 @@
 # Frontend
 
-Status: framework and test pipeline in place (#46), gateway API client and Google sign-in working (#47). The workspace, board, task and notification screens follow in #48 onward; their routes are placeholders.
+Status: framework and test pipeline in place (#46), gateway API client and Google sign-in working (#47), workspace, membership and invitation screens working (#48). The board, task and notification screens follow in #49 onward; the notifications route is still a placeholder.
 
 The web app implements the screens and journeys in the [product specification](../docs/product-specification.md) against the gateway's [REST contracts](../api_contracts/README.md). It calls the public gateway (`/api/v1/...`) only. It never calls private service APIs, the message broker, or a database, and no backend credentials or private service keys belong in this directory.
 
@@ -41,11 +41,17 @@ Implemented (#47):
 - Google sign-in (`src/auth`): challenge, Google Identity Services popup, credential exchange, in-memory session with expiry handling, sign-out, and a protected-route guard.
 - The home page loads the signed-in user's profile and workspace count from `GET /me`.
 
+Implemented (#48), all through the public gateway and covered by component and mocked API tests:
+
+- Workspaces (`/workspaces`, `/workspaces/:workspaceId`): paginated list, create, open. Owners can rename (with the version check, so a stale edit shows a conflict message) and delete (with confirmation). The ten-owned-workspace limit is explained and counts only workspaces you own, never ones you joined.
+- Membership: every member can view the member list and leave. Owners can remove non-owners (with confirmation). The owner cannot leave, and the twenty-member limit is shown. If access is revoked or the workspace is deleted, the view is cleared and the person is sent back to the workspace list.
+- Invitations, owner side (inside a workspace): invite by exact registered email, list by status with pagination, cancel with confirmation. Unknown or ambiguous email, already-member, duplicate-pending and full-workspace cases each get their own message. Pending invitations are never shown as reserving member slots.
+- Invitations, recipient side (`/invitations`): list your own invitations by status with pagination, accept, and decline (with confirmation). A full workspace keeps the invitation pending and explains why. An invitation that already reached another final state, or whose workspace was deleted, reloads the list instead of guessing. Accept and decline are safe to repeat, so an unclear failure just says to try again.
+
 Not yet implemented (later sub-issues; the current routes are placeholders):
 
 | Area | Sub-issue |
 | --- | --- |
-| Workspace, membership, and invitation screens | #48 |
 | Board navigation and management | #49 |
 | Task creation, editing, assignment, and board moves | #50 |
 | Task comments with the member mention picker | #51 |
@@ -137,5 +143,6 @@ src/
     auth/               session store, sign-in service, Google Identity Services loader, auth provider
     components/         app shell, route guard, auth controls, loading, empty and error states
     pages/              home, sign-in and placeholder pages
+    workspaces/         workspace list and detail, members, owner invitations, my invitations, and their API modules
     test/               test setup, MSW server, default handlers, render helpers
 ```
