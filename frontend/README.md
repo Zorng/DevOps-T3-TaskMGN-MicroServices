@@ -1,6 +1,6 @@
 # Frontend
 
-Status: framework and test pipeline in place (#46), gateway API client and Google sign-in working (#47), workspace, membership and invitation screens working (#48). The board, task and notification screens follow in #49 onward; the notifications route is still a placeholder.
+Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), and workspace, membership and invitation screens (#48). Board, task and notification screens follow in #49 onward; their routes are placeholders.
 
 The web app implements the screens and journeys in the [product specification](../docs/product-specification.md) against the gateway's [REST contracts](../api_contracts/README.md). It calls the public gateway (`/api/v1/...`) only. It never calls private service APIs, the message broker, or a database, and no backend credentials or private service keys belong in this directory.
 
@@ -39,14 +39,13 @@ Implemented (#47):
 
 - Gateway API client (`src/api`): bearer header, `Idempotency-Key` on creates with safe retry of the same key, `If-Match` and ETag handling for updates and deletes, cursor pagination, and mapping of the shared error envelope to typed errors with user-facing messages.
 - Google sign-in (`src/auth`): challenge, Google Identity Services popup, credential exchange, in-memory session with expiry handling, sign-out, and a protected-route guard.
-- The home page loads the signed-in user's profile and workspace count from `GET /me`.
+- The home page loads the signed-in user's profile and owned-workspace count from `GET /me`.
 
-Implemented (#48), all through the public gateway and covered by component and mocked API tests:
+Implemented (#48), described in [Workspaces, membership and invitations](#workspaces-membership-and-invitations):
 
-- Workspaces (`/workspaces`, `/workspaces/:workspaceId`): paginated list, create, open. Owners can rename (with the version check, so a stale edit shows a conflict message) and delete (with confirmation). The ten-owned-workspace limit is explained and counts only workspaces you own, never ones you joined.
-- Membership: every member can view the member list and leave. Owners can remove non-owners (with confirmation). The owner cannot leave, and the twenty-member limit is shown. If access is revoked or the workspace is deleted, the view is cleared and the person is sent back to the workspace list.
-- Invitations, owner side (inside a workspace): invite by exact registered email, list by status with pagination, cancel with confirmation. Unknown or ambiguous email, already-member, duplicate-pending and full-workspace cases each get their own message. Pending invitations are never shown as reserving member slots.
-- Invitations, recipient side (`/invitations`): list your own invitations by status with pagination, accept, and decline (with confirmation). A full workspace keeps the invitation pending and explains why. An invitation that already reached another final state, or whose workspace was deleted, reloads the list instead of guessing. Accept and decline are safe to repeat, so an unclear failure just says to try again.
+- Workspace list, creation, opening, renaming and deletion.
+- Member list, leaving, and owner removal of members.
+- Owner invitations (send, list, cancel) and the recipient's invitation inbox (list, accept, decline).
 
 Not yet implemented (later sub-issues; the current routes are placeholders):
 
@@ -105,13 +104,36 @@ To sign in for real, run the backend stack and the frontend together.
 3. In `frontend/.env.local`, set `VITE_API_BASE_URL=http://127.0.0.1:8080` and `VITE_GOOGLE_CLIENT_ID` to the same client ID.
 4. Run `npm run dev` and open `http://localhost:5173`. Restart the dev server after changing `.env.local`.
 
-The Google client must list `http://localhost:5173` as an authorized JavaScript origin, and while the Google project is in testing mode your Google account must be a test user.
+The Google client must list `http://localhost:5173` as an authorized JavaScript origin, and while the Google project is in testing mode your Google account must be a test user. To try invitations you need a second Google account that has signed in to the app once, because invitations target registered users by exact email.
+
+## Workspaces, membership and invitations
+
+Routes (all require sign-in; a signed-out visitor is sent to `/sign-in` and returned afterwards):
+
+| Route | What it does |
+| --- | --- |
+| `/workspaces` | Lists owned and joined workspaces (paginated, "Load more"), creates a workspace, and explains the owned-workspace limit. |
+| `/workspaces/:workspaceId` | Workspace page: members, and for the owner rename, delete and invitations. |
+| `/invitations` | The signed-in user's own invitations: filter by status, accept or decline. |
+
+Rules the screens follow (from `docs/product-specification.md` and `api_contracts/`):
+
+- **Limits.** A user owns at most 10 workspaces; joined workspaces do not count, and the page shows the count from `GET /me`. A workspace has at most 20 members including the owner. Pending invitations do not reserve member slots, so accepting at capacity is refused with the invitation left pending.
+- **Roles.** The owner can rename and delete the workspace (after an explicit confirmation), remove other members, and invite or cancel invitations. A member can view the workspace and leave it. The owner cannot leave; the page tells them to delete the workspace instead. The backend stays authoritative: the UI hides controls a role cannot use, and still handles a `403` or `404` if the role changed meanwhile.
+- **Names and emails.** Names are trimmed and limited to 100 Unicode code points; invitation emails to 254. The server's per-field validation messages are shown when it rejects a value.
+- **Stale versions.** Rename and delete send `If-Match` with the ETag from the last read. On `412 VERSION_CONFLICT` the page reloads the latest version, keeps what the user typed, and asks them to review before trying again. A member change also changes the workspace version, so the page re-reads the workspace after one.
+- **Safe creates.** Creating a workspace or an invitation uses one `Idempotency-Key` per attempt. After an unclear failure (network error, `503`) pressing the button again reuses the same key, so no duplicate is created.
+- **Invitations.** The owner invites by exact registered email. The screens explain an unknown email (`USER_NOT_FOUND`), an ambiguous email (`EMAIL_AMBIGUOUS`), an existing member (`ALREADY_MEMBER`), a duplicate pending invitation (`INVITATION_ALREADY_PENDING`), a full workspace (`MEMBER_LIMIT_REACHED`) and an invitation that already reached a final state (`INVITATION_NOT_PENDING`). Accept and decline need no key because repeating them is safe.
+- **Lost access.** If a workspace is deleted or the user is removed, the next request returns `404` and the page switches to "Workspace not available" with a link back to the list.
+
+Components: `WorkspacesPage`, `WorkspacePage`, `MembersSection`, `InvitationsSection` (owner) and `MyInvitationsPage` live in `src/workspaces/`, next to their API functions (`workspacesApi.ts`, `invitationsApi.ts`) and tests.
 
 ## Tests
 
 - Test files sit next to the code they cover, named `*.test.ts` or `*.test.tsx`.
 - `src/test/setup.ts` starts an MSW server for every test with `onUnhandledFrame: 'error'`, so a request without a mock handler fails the test and tests never reach a real gateway.
 - `src/test/handlers.ts` holds the default mock responses, shaped like the shared error envelope in `api_contracts/conventions.md`. Override them per test with `server.use(...)`. Base new mocks on `api_contracts/examples/`.
+- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
 - Component tests query by accessible role and name, and keyboard behavior is tested with user-event.
 - Running `npm test` also writes a JUnit report to `test-results/junit.xml` (git-ignored).
 
@@ -131,11 +153,11 @@ The Google client must list `http://localhost:5173` as an authorized JavaScript 
 
 ```text
 frontend/
-    index.html            Vite entry page
-    vite.config.ts        build, dev server, and test configuration
-    netlify.toml          Netlify build settings
-    .env.example          public configuration placeholders
-src/
+  index.html            Vite entry page
+  vite.config.ts        build, dev server, and test configuration
+  netlify.toml          Netlify build settings
+  .env.example          public configuration placeholders
+  src/
     main.tsx            entry point (router, config, auth provider)
     App.tsx             route definitions
     config.ts           public configuration reader
@@ -143,6 +165,6 @@ src/
     auth/               session store, sign-in service, Google Identity Services loader, auth provider
     components/         app shell, route guard, auth controls, loading, empty and error states
     pages/              home, sign-in and placeholder pages
-    workspaces/         workspace list and detail, members, owner invitations, my invitations, and their API modules
-    test/               test setup, MSW server, default handlers, render helpers
+    workspaces/         workspace, member and invitation screens with their API functions
+    test/               test setup, MSW server, default handlers, fixtures, render helper
 ```
