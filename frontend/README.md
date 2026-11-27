@@ -1,6 +1,6 @@
 # Frontend
 
-Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), workspace, membership and invitation screens (#48), and board screens (#49), task screens (#50), and comments with mentions (#51). Notification screens follow in #52 onward; their routes are placeholders.
+Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), workspace, membership and invitation screens (#48), and board screens (#49), task screens (#50), comments with mentions (#51), and notifications (#52). Deployment verification (#53) follows.
 
 The web app implements the screens and journeys in the [product specification](../docs/product-specification.md) against the gateway's [REST contracts](../api_contracts/README.md). It calls the public gateway (`/api/v1/...`) only. It never calls private service APIs, the message broker, or a database, and no backend credentials or private service keys belong in this directory.
 
@@ -60,11 +60,14 @@ Implemented (#51), described in [Comments and mentions](#comments-and-mentions):
 
 - Comment list on the task page (paginated, oldest first) and comment creation with an explicit member picker for mentions.
 
-Not yet implemented (later sub-issues; the current routes are placeholders):
+Implemented (#52), described in [Notifications](#notifications):
+
+- Notification list with unread count, unread-only filter, cursor pagination, manual refresh and individual mark-as-read; links to the invitation or task they concern.
+
+Not yet implemented (later sub-issues):
 
 | Area | Sub-issue |
 | --- | --- |
-| Notification list and read-state controls | #52 |
 | Netlify deployment and verification of the complete user journey against the real gateway | #53 |
 
 Drag-and-drop task moves and automatic notification polling are optional features and are not required by the project scope.
@@ -194,12 +197,26 @@ Comments live on the task page (`/workspaces/:workspaceId/tasks/:taskId`).
 
 Components: `CommentsSection` lives in `src/comments/`, next to `commentsApi.ts`, the pure mention logic in `mentions.ts`, and their tests.
 
+## Notifications
+
+The `/notifications` page lists notifications addressed to the signed-in user, newest first (`GET /notifications`).
+
+- **Types.** Each notification is an invitation, an assignment or a mention. The wording comes from the type alone ("invited you to join a workspace", "assigned you a task", "mentioned you in a comment") plus the actor's name and the time. The contract's notifications are generic: they carry no task title, comment text or invitation email, and the page shows none.
+- **Unread count.** Shown at the top and always read from `GET /notifications/unread-count`. The page never adds or subtracts it locally: after "Mark as read" it asks the server again, so repeated clicks, failures, or notifications that arrived meanwhile cannot make the number wrong. If the count cannot be refreshed, the last known number is kept and marked as possibly out of date.
+- **Filtering and pagination.** "Show unread only" sends `unread_only=true` and starts a new list. "Load more notifications" follows the server's opaque cursor.
+- **Manual refresh.** The list does not update by itself (automatic polling is optional and not implemented). "Refresh" reads the list and the count again. A failed refresh shows an error with a retry.
+- **Mark as read.** Only unread items have the button. Nothing is sent for an item that is already read or while its request is running. The server's response replaces the item, and a failed request leaves the item and the count as they were. Opening a notification does not mark it read.
+- **Opening a target.** Invitation notifications open `/invitations/:invitationId`; assignment and mention notifications open the task page. A notification never grants access: those pages ask the server again, and a deleted or inaccessible target shows "Invitation not available" or "Task not available" (with a link back for invitations) while the notification stays in the list as history.
+- **Session expiry.** A `401` signs the user out and returns to the sign-in page, like every other screen.
+
+Components: `NotificationsPage` lives in `src/notifications/` next to `notificationsApi.ts` and its tests. The invitation target page is `src/workspaces/InvitationPage.tsx`.
+
 ## Tests
 
 - Test files sit next to the code they cover, named `*.test.ts` or `*.test.tsx`.
 - `src/test/setup.ts` starts an MSW server for every test with `onUnhandledFrame: 'error'`, so a request without a mock handler fails the test and tests never reach a real gateway.
 - `src/test/handlers.ts` holds the default mock responses, shaped like the shared error envelope in `api_contracts/conventions.md`. Override them per test with `server.use(...)`. Base new mocks on `api_contracts/examples/`.
-- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations, boards, tasks, comments and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
+- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations, boards, tasks, comments, notifications and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
 - Component tests query by accessible role and name, and keyboard behavior is tested with user-event.
 - Running `npm test` also writes a JUnit report to `test-results/junit.xml` (git-ignored).
 
@@ -235,5 +252,6 @@ frontend/
     boards/             board list, board page and board API functions
     tasks/              task list, form, task page and task API functions
     comments/           comment list and form, mention logic and comment API functions
+    notifications/      notification list, read state and notification API functions
     test/               test setup, MSW server, default handlers, fixtures, render helper
 ```

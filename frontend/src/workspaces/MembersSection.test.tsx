@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
     errorBodyFixture,
@@ -88,9 +88,10 @@ describe('MembersSection view', () => {
         let calls = 0;
         server.use(
             workspaceHandler(),
-            http.get(membersUrl, () => {
+            http.get(membersUrl, async () => {
                 calls += 1;
                 if (calls === 1) {
+                    await delay(100);
                     return HttpResponse.json(errorBodyFixture('DEPENDENCY_UNAVAILABLE'), {
                         status: 503,
                         headers: { 'Retry-After': '2' },

@@ -116,3 +116,9 @@ export async function respondToInvitation(
         }),
     );
 }
+
+
+/** One invitation addressed to the signed-in user. A 404 means it is deleted or not theirs to see. */
+export async function getInvitation(client: ApiClient, invitationId: string, signal?: AbortSignal): Promise<Invitation> {
+    return toInvitation(await client.get<unknown>(`/invitations/${encodeURIComponent(invitationId)}`, { signal }));
+}
