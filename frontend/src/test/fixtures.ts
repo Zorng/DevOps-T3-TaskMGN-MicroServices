@@ -84,3 +84,16 @@ export function taskFixture(overrides: Record<string, unknown> = {}) {
         ...overrides,
     };
 }
+
+export function commentFixture(overrides: Record<string, unknown> = {}) {
+    return {
+        id: '00000000-0000-4000-8000-000000000007',
+        workspace_id: WORKSPACE_ID,
+        task_id: TASK_ID,
+        body: 'Please review @Dara',
+        author: { id: OWNER_ID, display_name: 'Example Owner' },
+        mentions: [{ user: { id: MEMBER_ID, display_name: 'Dara' }, start: 14, length: 5 }],
+        created_at: '2026-11-14T10:00:00Z',
+        ...overrides,
+    };
+}
