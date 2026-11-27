@@ -8,6 +8,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingState } from '../components/LoadingState';
+import { TasksSection } from '../tasks/TasksSection';
 import { getWorkspace, type Workspace } from '../workspaces/workspacesApi';
 import {
     boardRoute,
@@ -299,7 +300,7 @@ export function BoardPage() {
                 </ul>
             </nav>
             <h1>{board.name}</h1>
-            <p>Tasks in this status will appear here.</p>
+            <TasksSection key={`tasks-${board.id}`} workspace={workspace} board={board} boards={boards} onStale={refresh} />
 
             <RenameBoardForm
                 key={board.id}

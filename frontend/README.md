@@ -1,6 +1,6 @@
 # Frontend
 
-Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), workspace, membership and invitation screens (#48), and board screens (#49). Task and notification screens follow in #50 onward; their routes are placeholders.
+Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), workspace, membership and invitation screens (#48), and board screens (#49), and task screens (#50). Comment and notification screens follow in #51 onward; their routes are placeholders.
 
 The web app implements the screens and journeys in the [product specification](../docs/product-specification.md) against the gateway's [REST contracts](../api_contracts/README.md). It calls the public gateway (`/api/v1/...`) only. It never calls private service APIs, the message broker, or a database, and no backend credentials or private service keys belong in this directory.
 
@@ -52,11 +52,14 @@ Implemented (#49), described in [Boards](#boards):
 - Board list with creation inside each workspace, the five-board limit, and an empty-workspace state.
 - Board page with navigation between the workspace's boards, rename (owner and member) and owner-only deletion with confirmation.
 
+Implemented (#50), described in [Tasks](#tasks):
+
+- Task list per board (paginated), creation, opening, editing, assigning, moving between boards, and deletion with confirmation.
+
 Not yet implemented (later sub-issues; the current routes are placeholders):
 
 | Area | Sub-issue |
 | --- | --- |
-| Task creation, editing, assignment, and board moves | #50 |
 | Task comments with the member mention picker | #51 |
 | Notification list and read-state controls | #52 |
 | Netlify deployment and verification of the complete user journey against the real gateway | #53 |
@@ -137,7 +140,7 @@ Components: `WorkspacesPage`, `WorkspacePage`, `MembersSection`, `InvitationsSec
 | Route | What it does |
 | --- | --- |
 | `/workspaces/:workspaceId` | The workspace page also lists the workspace's boards and creates new ones. |
-| `/workspaces/:workspaceId/boards/:boardId` | One board: navigation between the workspace's boards, rename, and (owner) delete. Task lists arrive with #50. |
+| `/workspaces/:workspaceId/boards/:boardId` | One board: navigation between the workspace's boards, rename, and (owner) delete. It lists the board's tasks and creates new ones (see [Tasks](#tasks)). |
 
 Rules the screens follow (from `docs/product-specification.md` and `api_contracts/`):
 
@@ -152,12 +155,33 @@ Rules the screens follow (from `docs/product-specification.md` and `api_contract
 
 Components: `BoardsSection` and `BoardPage` live in `src/boards/`, next to `boardsApi.ts` and their tests.
 
+## Tasks
+
+| Route | What it does |
+| --- | --- |
+| `/workspaces/:workspaceId/boards/:boardId` | The board page lists the board's tasks (paginated, "Load more tasks"), creates tasks, and moves a task to another board from the list. |
+| `/workspaces/:workspaceId/tasks/:taskId` | One task: details, edit, move and delete. Comments arrive with #51. |
+
+Rules the screens follow (from `docs/product-specification.md` and `api_contracts/`):
+
+- **Fixed fields only.** Title (required, 1 to 200 characters), destination board (required), description (optional, up to 5000 characters, plain text), assignee (optional), start date and due date (optional, calendar dates). The task number, creator, created and updated times, and version are shown read-only. There is no priority, no custom field and no separately editable status: a task's board is its status.
+- **Validation.** Titles are trimmed; lengths are counted in Unicode code points; descriptions are kept exactly as typed. A start date after the due date is refused before sending (equal dates are allowed). The server's per-field messages are shown next to the field when it rejects a value.
+- **Assignees.** The selector offers only current workspace members, read from `GET /workspaces/{id}/members`. If the server refuses an assignee (for example the person was removed meanwhile), the reason is shown and the member list is read again. A task whose assignee is no longer a member shows that person as "(no longer a member)" rather than silently clearing them.
+- **Edits use PATCH with omission and null.** Only changed fields are sent; an omitted field stays as it is, `null` clears the assignee or a date. Title, description and board are never cleared. An unchanged assignee is never re-sent, so no repeated assignment is triggered. If nothing changed, nothing is sent.
+- **Moving.** A destination selector lists the workspace's other boards. Only `board_id` is sent, so identity, number, description, assignee and dates are untouched. A destination that was deleted meanwhile shows the server's reason and re-reads the boards.
+- **Stale versions.** Edit, move and delete send `If-Match`. On `412 VERSION_CONFLICT` (or an unclear result) the page reloads the latest task, keeps the typed text, and asks the user to try again; a delete needs a fresh confirmation against the new version.
+- **Safe creates.** One `Idempotency-Key` per create attempt. After an unclear failure the same key is reused when the button is pressed again, and the list is read again from the server after a create, so a retry never shows the task twice.
+- **Deleting.** A confirmation explains that the task and all its comments are removed and cannot be recovered. Cancel is focused first. After success the user returns to the task's board with a notice.
+- **Lost access.** A deleted task or board shows "Task not available"; a removed member (or deleted workspace) sees "Workspace not available"; a `403` shows "Access denied". The backend stays authoritative for every action, whatever the controls showed.
+
+Components: `TasksSection`, `TaskForm` and `TaskPage` live in `src/tasks/`, next to `tasksApi.ts` and their tests.
+
 ## Tests
 
 - Test files sit next to the code they cover, named `*.test.ts` or `*.test.tsx`.
 - `src/test/setup.ts` starts an MSW server for every test with `onUnhandledFrame: 'error'`, so a request without a mock handler fails the test and tests never reach a real gateway.
 - `src/test/handlers.ts` holds the default mock responses, shaped like the shared error envelope in `api_contracts/conventions.md`. Override them per test with `server.use(...)`. Base new mocks on `api_contracts/examples/`.
-- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations, boards and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
+- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations, boards, tasks and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
 - Component tests query by accessible role and name, and keyboard behavior is tested with user-event.
 - Running `npm test` also writes a JUnit report to `test-results/junit.xml` (git-ignored).
 
@@ -191,5 +215,6 @@ frontend/
     pages/              home, sign-in and placeholder pages
     workspaces/         workspace, member and invitation screens with their API functions
     boards/             board list, board page and board API functions
+    tasks/              task list, form, task page and task API functions
     test/               test setup, MSW server, default handlers, fixtures, render helper
 ```

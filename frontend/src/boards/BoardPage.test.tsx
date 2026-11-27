@@ -27,6 +27,7 @@ beforeEach(() => {
             if (!found) return HttpResponse.json(errorBodyFixture('NOT_FOUND'), { status: 404 });
             return HttpResponse.json(found, { headers: { ETag: '"1"' } });
         }),
+        http.get(`${wsUrl}/tasks`, () => HttpResponse.json({ items: [], next_cursor: null })),
         http.get(`${wsUrl}/members`, () => HttpResponse.json({ items: [] })),
         http.get(`${wsUrl}/invitations`, () => HttpResponse.json({ items: [], next_cursor: null })),
     );
