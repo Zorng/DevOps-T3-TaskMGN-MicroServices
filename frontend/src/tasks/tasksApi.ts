@@ -35,7 +35,7 @@ export interface VersionedTask {
     etag: string;
 }
 
-function parseUser(value: unknown): UserSummary | null {
+export function parseUser(value: unknown): UserSummary | null {
     if (!isRecord(value)) return null;
     const id = str(value['id']);
     const name = str(value['display_name']);
