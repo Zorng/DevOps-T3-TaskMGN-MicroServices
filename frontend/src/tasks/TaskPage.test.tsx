@@ -52,6 +52,7 @@ beforeEach(() => {
             return HttpResponse.json({ items: [OWNER_ROW, DARA_ROW] });
         }),
         http.get(`${wsUrl}/tasks`, () => HttpResponse.json({ items: [], next_cursor: null })),
+        http.get(`${taskUrl}/comments`, () => HttpResponse.json({ items: [], next_cursor: null })),
     );
 });
 

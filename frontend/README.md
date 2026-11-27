@@ -1,6 +1,6 @@
 # Frontend
 
-Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), workspace, membership and invitation screens (#48), and board screens (#49), and task screens (#50). Comment and notification screens follow in #51 onward; their routes are placeholders.
+Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), workspace, membership and invitation screens (#48), and board screens (#49), task screens (#50), and comments with mentions (#51). Notification screens follow in #52 onward; their routes are placeholders.
 
 The web app implements the screens and journeys in the [product specification](../docs/product-specification.md) against the gateway's [REST contracts](../api_contracts/README.md). It calls the public gateway (`/api/v1/...`) only. It never calls private service APIs, the message broker, or a database, and no backend credentials or private service keys belong in this directory.
 
@@ -56,11 +56,14 @@ Implemented (#50), described in [Tasks](#tasks):
 
 - Task list per board (paginated), creation, opening, editing, assigning, moving between boards, and deletion with confirmation.
 
+Implemented (#51), described in [Comments and mentions](#comments-and-mentions):
+
+- Comment list on the task page (paginated, oldest first) and comment creation with an explicit member picker for mentions.
+
 Not yet implemented (later sub-issues; the current routes are placeholders):
 
 | Area | Sub-issue |
 | --- | --- |
-| Task comments with the member mention picker | #51 |
 | Notification list and read-state controls | #52 |
 | Netlify deployment and verification of the complete user journey against the real gateway | #53 |
 
@@ -160,7 +163,7 @@ Components: `BoardsSection` and `BoardPage` live in `src/boards/`, next to `boar
 | Route | What it does |
 | --- | --- |
 | `/workspaces/:workspaceId/boards/:boardId` | The board page lists the board's tasks (paginated, "Load more tasks"), creates tasks, and moves a task to another board from the list. |
-| `/workspaces/:workspaceId/tasks/:taskId` | One task: details, edit, move and delete. Comments arrive with #51. |
+| `/workspaces/:workspaceId/tasks/:taskId` | One task: details, comments, edit, move and delete. |
 
 Rules the screens follow (from `docs/product-specification.md` and `api_contracts/`):
 
@@ -176,12 +179,27 @@ Rules the screens follow (from `docs/product-specification.md` and `api_contract
 
 Components: `TasksSection`, `TaskForm` and `TaskPage` live in `src/tasks/`, next to `tasksApi.ts` and their tests.
 
+## Comments and mentions
+
+Comments live on the task page (`/workspaces/:workspaceId/tasks/:taskId`).
+
+- **Add and read only.** Comments are listed oldest first as the contract orders them, with "Load more comments". There are no edit or delete controls, because comments are immutable in this MVP. After a comment is added the list is read again from the server; with more than one page, use "Load more comments" to reach the newest.
+- **Plain text.** Authors, bodies and mention names are rendered as text, never as HTML, so markup typed into a comment is shown literally. Line breaks are kept.
+- **Explicit mentions.** The only way to mention someone is the "Mention a member" picker, which lists the workspace's current members. "Insert mention" puts `@Name` at the caret and records a structured range for that member. Typing `@Dara` by hand is ordinary text and mentions nobody. Mentions can be removed from the list under the box; the text stays.
+- **Code point offsets.** A range's `start` and `length` count Unicode code points in the exact body, so an emoji before a mention counts as one, not two. The body is sent exactly as typed and is never trimmed, because trimming would shift the offsets. The same counting is used to draw stored comments, and a stored range that does not fit or does not start with `@` is ignored (the comment is shown as plain text).
+- **Ranges stay aligned.** Whenever the text changes, the changed region is found and ranges before it stay, ranges after it move by the same number of characters, and a range that was touched is dropped because its text is no longer exactly `@Name`.
+- **Bounds checked before sending.** 1 to 2000 characters (a whitespace-only comment is refused), at most 50 ranges, at most 20 different people, no overlapping ranges, and only current members. The picker refuses an insertion that would break a bound.
+- **Backend stays authoritative.** If a mentioned person was removed meanwhile, the server's `422` reason is shown with a prompt to update the mentions, the members and task are read again, and sending is blocked locally until the mention is removed. A deleted task or revoked access (`404`) shows "Task not available" or "Workspace not available".
+- **Safe retry.** One `Idempotency-Key` per comment. After an unclear failure (network error, `503`) pressing "Add comment" again reuses the same key, so no duplicate is created. Changing the text starts a new attempt.
+
+Components: `CommentsSection` lives in `src/comments/`, next to `commentsApi.ts`, the pure mention logic in `mentions.ts`, and their tests.
+
 ## Tests
 
 - Test files sit next to the code they cover, named `*.test.ts` or `*.test.tsx`.
 - `src/test/setup.ts` starts an MSW server for every test with `onUnhandledFrame: 'error'`, so a request without a mock handler fails the test and tests never reach a real gateway.
 - `src/test/handlers.ts` holds the default mock responses, shaped like the shared error envelope in `api_contracts/conventions.md`. Override them per test with `server.use(...)`. Base new mocks on `api_contracts/examples/`.
-- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations, boards, tasks and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
+- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations, boards, tasks, comments and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
 - Component tests query by accessible role and name, and keyboard behavior is tested with user-event.
 - Running `npm test` also writes a JUnit report to `test-results/junit.xml` (git-ignored).
 
@@ -216,5 +234,6 @@ frontend/
     workspaces/         workspace, member and invitation screens with their API functions
     boards/             board list, board page and board API functions
     tasks/              task list, form, task page and task API functions
+    comments/           comment list and form, mention logic and comment API functions
     test/               test setup, MSW server, default handlers, fixtures, render helper
 ```

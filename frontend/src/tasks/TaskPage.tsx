@@ -5,6 +5,7 @@ import { isForbidden, isNotFound } from '../api/errors';
 import { describeError, fieldReason } from '../api/messages';
 import { isVersionConflict } from '../api/mutations';
 import { useAuth } from '../auth/AuthProvider';
+import { CommentsSection } from '../comments/CommentsSection';
 import { boardRoute, listBoards, type Board } from '../boards/boardsApi';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
@@ -369,6 +370,13 @@ export function TaskPage() {
             </dl>
             {task.description !== '' && <p>{task.description}</p>}
 
+            <CommentsSection
+                key={`comments-${task.id}`}
+                workspaceId={workspace.id}
+                taskId={task.id}
+                members={members}
+                onStale={refresh}
+            />
             <EditTaskForm key={task.id} {...shared} members={members} onSaved={accept} />
             <MoveTaskPanel key={`move-${task.id}`} {...shared} onMoved={accept} />
             <DeleteTaskPanel
