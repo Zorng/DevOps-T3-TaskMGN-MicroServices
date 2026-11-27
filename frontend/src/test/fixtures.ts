@@ -97,3 +97,22 @@ export function commentFixture(overrides: Record<string, unknown> = {}) {
         ...overrides,
     };
 }
+
+export const NOTIFICATION_ID = '00000000-0000-4000-8000-000000000011';
+
+export function notificationFixture(overrides: Record<string, unknown> = {}) {
+    return {
+        id: NOTIFICATION_ID,
+        event_id: '00000000-0000-4000-8000-000000000102',
+        type: 'assignment',
+        actor: { id: OWNER_ID, display_name: 'Example Owner' },
+        workspace_id: WORKSPACE_ID,
+        invitation_id: null,
+        task_id: TASK_ID,
+        comment_id: null,
+        occurred_at: '2026-11-14T10:00:00Z',
+        created_at: '2026-11-14T10:00:00Z',
+        read_at: null,
+        ...overrides,
+    };
+}
