@@ -14,6 +14,7 @@ describe('describeError', () => {
         ['SESSION_INVALID', 'session has ended'],
         ['AUTH_REQUIRED', 'session has ended'],
         ['WORKSPACE_LIMIT_REACHED', 'maximum'],
+        ['BOARD_LIMIT_REACHED', 'maximum of 5 boards'],
         ['VALIDATION_FAILED', 'not valid'],
         ['IDEMPOTENCY_IN_PROGRESS', 'still being processed'],
         ['VERSION_CONFLICT', 'changed by someone else'],

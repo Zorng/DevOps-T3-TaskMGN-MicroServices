@@ -1,6 +1,7 @@
 export const OWNER_ID = '00000000-0000-4000-8000-000000000001';
 export const MEMBER_ID = '00000000-0000-4000-8000-000000000002';
 export const WORKSPACE_ID = '00000000-0000-4000-8000-000000000003';
+export const BOARD_ID = '00000000-0000-4000-8000-000000000004';
 export const INVITATION_ID = '00000000-0000-4000-8000-000000000008';
 
 export function workspaceFixture(overrides: Record<string, unknown> = {}) {
@@ -50,4 +51,16 @@ export function invitationFixture(overrides: Record<string, unknown> = {}) {
     updated_at: '2026-11-14T10:00:00Z',
     ...overrides,
   };
+}
+
+export function boardFixture(overrides: Record<string, unknown> = {}) {
+    return {
+        id: BOARD_ID,
+        workspace_id: WORKSPACE_ID,
+        name: 'Todo',
+        version: 1,
+        created_at: '2026-11-14T10:00:00Z',
+        updated_at: '2026-11-14T10:00:00Z',
+        ...overrides,
+    };
 }

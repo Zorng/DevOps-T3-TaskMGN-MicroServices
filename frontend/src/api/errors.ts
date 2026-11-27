@@ -163,3 +163,8 @@ export function networkApiError(): ApiError {
 export function isNotFound(error: unknown): boolean {
     return error instanceof ApiError && error.code === 'NOT_FOUND';
 }
+
+/** True for 403 FORBIDDEN: the resource exists but this user may not do this to it. */
+export function isForbidden(error: unknown): boolean {
+    return error instanceof ApiError && error.code === 'FORBIDDEN';
+}

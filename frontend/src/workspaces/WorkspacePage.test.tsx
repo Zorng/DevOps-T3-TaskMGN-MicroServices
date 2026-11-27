@@ -11,9 +11,10 @@ const open = () => renderApp({ signedIn: true, path: `/workspaces/${WORKSPACE_ID
 const getHandler = (overrides: Record<string, unknown> = {}, etag = '"2"') =>
     http.get(wsUrl, () => HttpResponse.json(workspaceFixture(overrides), { headers: { ETag: etag } }));
 
-// Every workspace page also loads its member list.
+// Every workspace page also loads its member list and boards.
 beforeEach(() => {
     server.use(
+        http.get(`${wsUrl}/boards`, () => HttpResponse.json({ items: [] })),
         http.get(`${wsUrl}/members`, () => HttpResponse.json({ items: [] })),
         http.get(`${wsUrl}/invitations`, () => HttpResponse.json({ items: [], next_cursor: null })),
     );

@@ -1,6 +1,6 @@
 # Frontend
 
-Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), and workspace, membership and invitation screens (#48). Board, task and notification screens follow in #49 onward; their routes are placeholders.
+Status: framework and test pipeline in place (#46), gateway API client and Google sign-in (#47), workspace, membership and invitation screens (#48), and board screens (#49). Task and notification screens follow in #50 onward; their routes are placeholders.
 
 The web app implements the screens and journeys in the [product specification](../docs/product-specification.md) against the gateway's [REST contracts](../api_contracts/README.md). It calls the public gateway (`/api/v1/...`) only. It never calls private service APIs, the message broker, or a database, and no backend credentials or private service keys belong in this directory.
 
@@ -47,11 +47,15 @@ Implemented (#48), described in [Workspaces, membership and invitations](#worksp
 - Member list, leaving, and owner removal of members.
 - Owner invitations (send, list, cancel) and the recipient's invitation inbox (list, accept, decline).
 
+Implemented (#49), described in [Boards](#boards):
+
+- Board list with creation inside each workspace, the five-board limit, and an empty-workspace state.
+- Board page with navigation between the workspace's boards, rename (owner and member) and owner-only deletion with confirmation.
+
 Not yet implemented (later sub-issues; the current routes are placeholders):
 
 | Area | Sub-issue |
 | --- | --- |
-| Board navigation and management | #49 |
 | Task creation, editing, assignment, and board moves | #50 |
 | Task comments with the member mention picker | #51 |
 | Notification list and read-state controls | #52 |
@@ -128,12 +132,32 @@ Rules the screens follow (from `docs/product-specification.md` and `api_contract
 
 Components: `WorkspacesPage`, `WorkspacePage`, `MembersSection`, `InvitationsSection` (owner) and `MyInvitationsPage` live in `src/workspaces/`, next to their API functions (`workspacesApi.ts`, `invitationsApi.ts`) and tests.
 
+## Boards
+
+| Route | What it does |
+| --- | --- |
+| `/workspaces/:workspaceId` | The workspace page also lists the workspace's boards and creates new ones. |
+| `/workspaces/:workspaceId/boards/:boardId` | One board: navigation between the workspace's boards, rename, and (owner) delete. Task lists arrive with #50. |
+
+Rules the screens follow (from `docs/product-specification.md` and `api_contracts/`):
+
+- **Boards are statuses.** A board is a named task status. There are no fixed statuses and no columns inside a board. A workspace with no boards is shown as empty; the app never creates "Todo", "In Progress" or "Done" for the user.
+- **Limit.** At most five boards per workspace. The list shows "n of 5 boards" and disables creation at five, but the server stays authoritative: `409 BOARD_LIMIT_REACHED` (for example when another member created the fifth board first) shows a message and re-reads the list.
+- **Names.** Trimmed, 1 to 50 Unicode code points, checked before sending; the server's per-field messages are shown when it rejects a name.
+- **Roles.** Owners and members create and rename boards. Only the owner sees Delete. If a refusal (`403`) or a disappearance (`404`) arrives anyway, the page re-reads the workspace and the board and shows what is true now.
+- **Deleting.** The owner confirms in a panel that says the board and every task and comment in it are removed and cannot be recovered, and that a board slot is freed. Cancel is focused first and focus returns to the Delete button on cancel. Delete sends `If-Match` with the ETag from the last read of the board. After success the user returns to the workspace with a notice.
+- **Stale versions.** Rename and delete send `If-Match`. On `412 VERSION_CONFLICT` (or an unclear result) the page reloads the latest board, keeps the typed name, and asks the user to try again; a delete needs a fresh confirmation against the new version.
+- **Safe creates.** One `Idempotency-Key` per create attempt; pressing the button again after an unclear failure reuses it, so no duplicate board is created.
+- **Navigation.** The address holds both the workspace and the board, so reloads and links keep the active workspace and board; the board navigation marks the current one. A deleted or hidden board shows "Board not available" with a link back to the workspace; a hidden workspace shows "Workspace not available"; a `403` shows "Access denied".
+
+Components: `BoardsSection` and `BoardPage` live in `src/boards/`, next to `boardsApi.ts` and their tests.
+
 ## Tests
 
 - Test files sit next to the code they cover, named `*.test.ts` or `*.test.tsx`.
 - `src/test/setup.ts` starts an MSW server for every test with `onUnhandledFrame: 'error'`, so a request without a mock handler fails the test and tests never reach a real gateway.
 - `src/test/handlers.ts` holds the default mock responses, shaped like the shared error envelope in `api_contracts/conventions.md`. Override them per test with `server.use(...)`. Base new mocks on `api_contracts/examples/`.
-- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
+- `src/test/fixtures.ts` builds contract-shaped workspaces, members, invitations, boards and error bodies. `src/test/renderApp.tsx` renders the whole app with a signed-in or signed-out session and a fake Google, so screen tests drive real routes against mocked responses.
 - Component tests query by accessible role and name, and keyboard behavior is tested with user-event.
 - Running `npm test` also writes a JUnit report to `test-results/junit.xml` (git-ignored).
 
@@ -166,5 +190,6 @@ frontend/
     components/         app shell, route guard, auth controls, loading, empty and error states
     pages/              home, sign-in and placeholder pages
     workspaces/         workspace, member and invitation screens with their API functions
+    boards/             board list, board page and board API functions
     test/               test setup, MSW server, default handlers, fixtures, render helper
 ```
