@@ -28,6 +28,8 @@ export function describeError(error: unknown, fallback: string = GENERIC_ERROR_M
                 : `The service is temporarily unavailable. Please try again in about ${error.retryAfterSeconds} seconds.`;
         case 'WORKSPACE_LIMIT_REACHED':
             return 'You already own 10 workspaces, the maximum. Workspaces you have joined do not count toward this limit. Delete one of your own workspaces to create another.';
+        case 'BOARD_LIMIT_REACHED':
+            return 'This workspace already has the maximum of 5 boards. Delete a board to make room for a new one.';
         case 'VALIDATION_FAILED':
             return 'The information you entered is not valid. Check it and try again.';
         case 'IDEMPOTENCY_IN_PROGRESS':
