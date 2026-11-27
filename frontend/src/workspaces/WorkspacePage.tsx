@@ -8,6 +8,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingState } from '../components/LoadingState';
+import { BoardsSection } from '../boards/BoardsSection';
 import { MembersSection } from './MembersSection';
 import { InvitationsSection } from './InvitationsSection';
 import {
@@ -286,6 +287,7 @@ export function WorkspacePage() {
             ) : (
                 <p>Only the workspace owner can rename or delete it.</p>
             )}
+            <BoardsSection key={`boards-${workspace.id}`} workspace={workspace} onChanged={refresh} onGone={gone} />
             <MembersSection
                 key={`members-${workspace.id}`}
                 workspace={workspace}

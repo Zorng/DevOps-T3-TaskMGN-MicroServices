@@ -7,6 +7,7 @@ import { WorkspacesPage } from './workspaces/WorkspacesPage';
 import { WorkspacePage } from './workspaces/WorkspacePage';
 import { SignInPage } from './pages/SignInPage';
 import { MyInvitationsPage } from './workspaces/InvitationsPage';
+import { BoardPage } from './boards/BoardPage';
 
 export function App() {
     return (
@@ -17,6 +18,7 @@ export function App() {
                     <Route index element={<HomePage />} />
                     <Route path="workspaces" element={<WorkspacesPage />} />
                     <Route path="workspaces/:workspaceId" element={<WorkspacePage />} />
+                    <Route path="workspaces/:workspaceId/boards/:boardId" element={<BoardPage />} />
                     <Route path="invitations" element={<MyInvitationsPage />} />
                     <Route path="notifications" element={<NotificationsPage />} />
                 </Route>

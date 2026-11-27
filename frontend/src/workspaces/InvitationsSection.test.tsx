@@ -28,6 +28,7 @@ beforeEach(() => {
     server.use(
         http.get(wsUrl, () => HttpResponse.json(workspaceFixture(), { headers: { ETag: '"2"' } })),
         http.get(`${wsUrl}/members`, () => HttpResponse.json({ items: [] })),
+        http.get(`${wsUrl}/boards`, () => HttpResponse.json({ items: [] })),
     );
 });
 

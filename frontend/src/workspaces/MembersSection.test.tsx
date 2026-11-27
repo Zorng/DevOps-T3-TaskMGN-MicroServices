@@ -39,7 +39,10 @@ const workspaceHandler = (overrides: Record<string, unknown> = {}, etag = '"2"')
 const membersHandler = (items: unknown[]) => http.get(membersUrl, () => HttpResponse.json({ items }));
 const memberList = () => screen.findByRole('list', { name: 'Workspace members' });
 beforeEach(() => {
-    server.use(http.get(`${wsUrl}/invitations`, () => HttpResponse.json({ items: [], next_cursor: null })));
+    server.use(
+        http.get(`${wsUrl}/boards`, () => HttpResponse.json({ items: [] })),
+        http.get(`${wsUrl}/invitations`, () => HttpResponse.json({ items: [], next_cursor: null })),
+    );
 });
 
 describe('MembersSection view', () => {
