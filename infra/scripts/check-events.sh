@@ -9,13 +9,14 @@
 #
 # How it works: the contract's example events (api_contracts/examples/events.json)
 # are given fresh IDs and written to each producer's own outbox table. The producer's
-# own publisher sends them. A probe then reads them back from the queues and
-# acknowledges only those messages. The seeded outbox rows are deleted at the end.
+# own publisher sends them. Notification consumes notifications.v1, so for those
+# events the check looks at its effect: exactly one notification and one
+# processed-event marker per event in Notification's database. Nothing consumes
+# task-cleanup.v1 in this stack, so a probe reads those events back from the queue
+# and acknowledges only them. Seeded rows are deleted at the end.
 #
 # Events are seeded directly because creating them through the public APIs needs a
-# Google sign-in. Notification and Task's lifecycle consumers are not implemented, so
-# nothing reads these queues yet. When a consumer joins the stack it will take the
-# messages first and this check must change to look at the consumer's effects.
+# Google sign-in.
 #
 # Exits 0 when every check passes and 1 otherwise. Secrets are never printed.
 # Works with the macOS default bash (3.2) as well as current Linux bash.
@@ -82,7 +83,7 @@ BROKER_ADMIN_USER=$(env_value BROKER_ADMIN_USER)
 BROKER_ADMIN_PASSWORD=$(env_value BROKER_ADMIN_PASSWORD)
 
 container_id() { "${COMPOSE[@]}" ps -q "$1" 2>/dev/null | head -n 1; }
-if [ -z "$(container_id broker)" ] || [ -z "$(container_id identity-outbox)" ]; then
+if [ -z "$(container_id broker)" ] || [ -z "$(container_id identity-outbox)" ] || [ -z "$(container_id notification)" ]; then
   echo "The stack is not running. Start it first:" >&2
   echo "  docker compose -f infra/compose.yaml up -d --build --wait" >&2
   exit 2
@@ -145,6 +146,11 @@ seed() { # producer type id request_id
   run_sql "$(db_of "$1")" "$sql" >/dev/null
 }
 
+# "<notifications>/<markers>" stored by Notification for one event ID.
+notification_effect() { # id
+  run_sql notification-db "SELECT (SELECT count(*) FROM notification_service.notifications WHERE event_id = '$1') || '/' || (SELECT count(*) FROM notification_service.processed_events WHERE event_id = '$1')"
+}
+
 delivery_state() { # producer id -> published | pending | (empty when the row is missing)
   local table column
   if [ "$1" = identity ]; then table=identity_workspace.outbox column=event_id; else table=task_service.outbox column=id; fi
@@ -158,6 +164,8 @@ purge_seeded() { # delete the rows this script wrote, whatever their state
   while [ "$index" -lt "${#IDS[@]}" ]; do
     if [ "${PRODUCERS[$index]}" = identity ]; then table=identity_workspace.outbox column=event_id; else table=task_service.outbox column=id; fi
     run_sql "$(db_of "${PRODUCERS[$index]}")" "DELETE FROM $table WHERE $column = '${IDS[$index]}'" >/dev/null
+    run_sql notification-db "DELETE FROM notification_service.notifications WHERE event_id = '${IDS[$index]}'" >/dev/null
+    run_sql notification-db "DELETE FROM notification_service.processed_events WHERE event_id = '${IDS[$index]}'" >/dev/null
     index=$((index + 1))
   done
   IDS=()
@@ -242,17 +250,34 @@ for item in wanted:
 QUEUES=()
 TYPES=()
 
+verify_consumed() { # wait for Notification's effect of each notifications.v1 event
+  local index=0
+  while [ "$index" -lt "${#IDS[@]}" ]; do
+    if [ "${QUEUES[$index]}" = notifications.v1 ]; then
+      wait_for "${TYPES[$index]} consumed by Notification (one notification, one marker)" 1/1 "$1" \
+        notification_effect "${IDS[$index]}"
+    fi
+    index=$((index + 1))
+  done
+}
+
 verify_in_queues() {
   local wanted="" index=0 output result
   while [ "$index" -lt "${#IDS[@]}" ]; do
-    [ -n "$wanted" ] && wanted="$wanted,"
-    wanted="$wanted{\"queue\":\"${QUEUES[$index]}\",\"id\":\"${IDS[$index]}\",\"type\":\"${TYPES[$index]}\"}"
+    if [ "${QUEUES[$index]}" != notifications.v1 ]; then
+      [ -n "$wanted" ] && wanted="$wanted,"
+      wanted="$wanted{\"queue\":\"${QUEUES[$index]}\",\"id\":\"${IDS[$index]}\",\"type\":\"${TYPES[$index]}\"}"
+    fi
     index=$((index + 1))
   done
   output=$(printf '%s\n%s\n' "$BROKER_ADMIN_USER" "$BROKER_ADMIN_PASSWORD" \
     | "${COMPOSE[@]}" exec -T identity-outbox python -c "$PROBE_PY" "[$wanted]" 2>&1)
   index=0
   while [ "$index" -lt "${#IDS[@]}" ]; do
+    if [ "${QUEUES[$index]}" = notifications.v1 ]; then
+      index=$((index + 1))
+      continue
+    fi
     result=$(printf '%s\n' "$output" | sed -n "s/^RESULT ${IDS[$index]} //p")
     if [ "$result" = ok ]; then
       pass "${TYPES[$index]} arrived in ${QUEUES[$index]} (persistent, ID and type match)"
@@ -306,6 +331,7 @@ run_scenario() { # title outage(0|1)
     done
     expect "Identity stays ready during the broker outage" 200 "$(inside_code http://127.0.0.1:8000/health/ready)"
     expect "Task stays ready during the broker outage" 200 "$(inside_code http://task:8001/health/ready)"
+    expect "Notification stays ready during the broker outage" 200 "$(inside_code http://notification:8002/health/ready)"
     "${COMPOSE[@]}" start broker >/dev/null 2>&1
     STOPPED=""
     wait_for "broker healthy again" healthy 90 health_of broker
@@ -318,7 +344,10 @@ run_scenario() { # title outage(0|1)
     index=$((index + 1))
   done
 
-  if [ "${#IDS[@]}" -gt 0 ]; then verify_in_queues; fi
+  if [ "${#IDS[@]}" -gt 0 ]; then
+    verify_consumed "$wait_seconds"
+    verify_in_queues
+  fi
 
   wait_for "notifications.v1 is back to its starting depth" "$base_n" 30 depth notifications.v1
   wait_for "task-cleanup.v1 is back to its starting depth" "$base_c" 30 depth task-cleanup.v1
@@ -337,8 +366,10 @@ section "Not verified by this script (incomplete integrations)"
 cat <<'NOTES'
   - Events were seeded into the outboxes with the contract's example payloads.
     Creating them through the public APIs needs a Google sign-in (manual).
-  - Consumers: Notification and Task's lifecycle-event cleanup are not
-    implemented, so no event is consumed, deduplicated or acted on yet.
+  - Task's lifecycle-event cleanup consumer is not enabled in this stack, so
+    task-cleanup.v1 events are only checked in the queue, not acted on.
+  - Duplicate delivery, retries and dead-lettering are covered by
+    Notification's own broker tests (services/notification/test/broker).
 NOTES
 [ "$OUTAGE" = 1 ] || echo "  - Broker outage delivery: re-run with --outage."
 

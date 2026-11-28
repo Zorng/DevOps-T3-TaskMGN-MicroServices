@@ -96,6 +96,12 @@ python_can_connect() { # service host port
 task_can_connect() { # host port
   "${COMPOSE[@]}" exec -T task bash -c 'exec 3<>/dev/tcp/"$0"/"$1"' "$1" "$2" >/dev/null 2>&1
 }
+NODE_CONNECT='const [host, port] = process.argv.slice(1);
+require("net").connect(Number(port), host).setTimeout(3000)
+  .on("connect", () => process.exit(0)).on("error", () => process.exit(1)).on("timeout", () => process.exit(1));'
+notification_can_connect() { # host port
+  "${COMPOSE[@]}" exec -T notification node -e "$NODE_CONNECT" "$1" "$2" >/dev/null 2>&1
+}
 
 container_id() { "${COMPOSE[@]}" ps -q "$1" 2>/dev/null | head -n 1; }
 
@@ -144,9 +150,7 @@ section "Public gateway ($GATEWAY)"
 expect "gateway liveness /healthz" 200 "$(gateway_code GET /healthz)"
 expect "Identity route reaches Identity (no login -> 401)" 401 "$(gateway_code GET /api/v1/me)"
 expect "Task route reaches Task (no login -> 401)" 401 "$(gateway_code GET "/api/v1/workspaces/$WORKSPACE_ID/boards")"
-# Notification is not built yet, so 503 is the correct answer today. When that
-# service joins the stack, change this to the status an unauthenticated request gets.
-expect "Notification route answers 503 (service not built yet)" 503 "$(gateway_code GET /api/v1/notifications)"
+expect "Notification route reaches Notification (no login -> 401)" 401 "$(gateway_code GET /api/v1/notifications)"
 expect "unknown path is 404" 404 "$(gateway_code GET /no-such-route)"
 for path in /health/live /health/ready /metrics /actuator/health /actuator/prometheus; do
   expect "private path $path is not public" 404 "$(gateway_code GET "$path")"
@@ -161,6 +165,8 @@ expect "Identity liveness" 200 "$(inside_code http://127.0.0.1:8000/health/live)
 expect "Identity readiness" 200 "$(inside_code http://127.0.0.1:8000/health/ready)"
 expect "Task liveness" 200 "$(inside_code http://task:8001/health/live)"
 expect "Task readiness (needs its database and Identity)" 200 "$(inside_code http://task:8001/health/ready)"
+expect "Notification liveness" 200 "$(inside_code http://notification:8002/health/live)"
+expect "Notification readiness (needs its database and Identity)" 200 "$(inside_code http://notification:8002/health/ready)"
 
 # --- 3. Isolation -----------------------------------------------------------------
 section "Private networking"
@@ -179,8 +185,10 @@ expect "only the gateway publishes a host port, on localhost only" \
 expect "gateway network" "taskmgn_backend" "$(networks_of gateway)"
 expect "Identity database network" "taskmgn_identity-data" "$(networks_of identity-db)"
 expect "Task database network" "taskmgn_task-data" "$(networks_of task-db)"
+expect "Notification database network" "taskmgn_notification-data" "$(networks_of notification-db)"
+expect "Notification networks" "taskmgn_backend taskmgn_messaging taskmgn_notification-data" "$(networks_of notification)"
 expect "broker network" "taskmgn_messaging" "$(networks_of broker)"
-for network in identity-data task-data messaging; do
+for network in identity-data task-data notification-data messaging; do
   expect "network $network blocks outside traffic" true \
     "$(docker network inspect -f '{{.Internal}}' "taskmgn_$network" 2>/dev/null || echo missing)"
 done
@@ -190,6 +198,11 @@ if python_can_connect identity-workspace broker 5672; then fail "Identity API ca
 if task_can_connect identity-db 5432; then fail "Task can reach Identity's database"; else pass "Task cannot reach Identity's database"; fi
 if task_can_connect broker 5672; then pass "Task can reach the broker (its outbox publisher needs it)"; else fail "Task cannot reach the broker"; fi
 if python_can_connect identity-outbox broker 5672; then pass "Identity's outbox worker can reach the broker"; else fail "Identity's outbox worker cannot reach the broker"; fi
+if python_can_connect identity-workspace notification-db 5432; then fail "Identity can reach Notification's database"; else pass "Identity cannot reach Notification's database"; fi
+if task_can_connect notification-db 5432; then fail "Task can reach Notification's database"; else pass "Task cannot reach Notification's database"; fi
+if notification_can_connect identity-db 5432; then fail "Notification can reach Identity's database"; else pass "Notification cannot reach Identity's database"; fi
+if notification_can_connect task-db 5432; then fail "Notification can reach Task's database"; else pass "Notification cannot reach Task's database"; fi
+if notification_can_connect broker 5672; then pass "Notification can reach the broker (its consumer needs it)"; else fail "Notification cannot reach the broker"; fi
 expect "Identity outbox worker is running" running "$(state_of identity-outbox)"
 
 # --- 4. Lifecycle (stops and restarts services) ----------------------------------
@@ -200,11 +213,13 @@ if [ "$LIFECYCLE" = 1 ]; then
   sleep 5
   expect "Identity ready while the broker is stopped" 200 "$(inside_code http://127.0.0.1:8000/health/ready)"
   expect "Task ready while the broker is stopped" 200 "$(inside_code http://task:8001/health/ready)"
+  expect "Notification ready while the broker is stopped" 200 "$(inside_code http://notification:8002/health/ready)"
   expect "gateway still serves Identity routes" 401 "$(gateway_code GET /api/v1/me)"
   "${COMPOSE[@]}" start broker >/dev/null 2>&1
   STOPPED=""
   wait_for "broker healthy again" healthy 90 health_of broker
   expect "Identity outbox worker survived the outage" running "$(state_of identity-outbox)"
+  expect "Notification survived the outage" running "$(state_of notification)"
 
   section "Identity database outage: readiness fails, liveness stays up"
   "${COMPOSE[@]}" stop identity-db >/dev/null 2>&1
@@ -213,44 +228,52 @@ if [ "$LIFECYCLE" = 1 ]; then
   expect "Identity liveness stays 200" 200 "$(inside_code http://127.0.0.1:8000/health/live)"
   wait_for "Task readiness is 503 when Identity is not ready" 503 40 inside_code http://task:8001/health/ready
   expect "Task liveness stays 200" 200 "$(inside_code http://task:8001/health/live)"
+  wait_for "Notification readiness is 503 when Identity is not ready" 503 40 inside_code http://notification:8002/health/ready
+  expect "Notification liveness stays 200" 200 "$(inside_code http://notification:8002/health/live)"
   "${COMPOSE[@]}" start identity-db >/dev/null 2>&1
   STOPPED=""
   wait_for "Identity ready again after recovery" 200 90 inside_code http://127.0.0.1:8000/health/ready
   wait_for "Task ready again after recovery" 200 90 inside_code http://task:8001/health/ready
+  wait_for "Notification ready again after recovery" 200 90 inside_code http://notification:8002/health/ready
 
   section "Restarting services: the gateway must keep reaching them"
-  "${COMPOSE[@]}" restart identity-workspace task >/dev/null 2>&1
+  "${COMPOSE[@]}" restart identity-workspace task notification >/dev/null 2>&1
   wait_for "Identity ready after restart" 200 90 inside_code http://127.0.0.1:8000/health/ready
   wait_for "Task ready after restart" 200 120 inside_code http://task:8001/health/ready
   expect "gateway reaches Identity after restart" 401 "$(gateway_code GET /api/v1/me)"
   expect "gateway reaches Task after restart" 401 "$(gateway_code GET "/api/v1/workspaces/$WORKSPACE_ID/boards")"
+  wait_for "Notification ready after restart" 200 90 inside_code http://notification:8002/health/ready
+  expect "gateway reaches Notification after restart" 401 "$(gateway_code GET /api/v1/notifications)"
 
   section "Stop and start the whole stack: data must survive"
   BEFORE_IDENTITY=$(database_id identity-db)
   BEFORE_TASK=$(database_id task-db)
+  BEFORE_NOTIFICATION=$(database_id notification-db)
   BEFORE_BROKER=$(broker_id)
   [ -n "$BEFORE_IDENTITY" ] && pass "recorded Identity database identity" || fail "could not read Identity database identity"
   [ -n "$BEFORE_TASK" ] && pass "recorded Task database identity" || fail "could not read Task database identity"
+  [ -n "$BEFORE_NOTIFICATION" ] && pass "recorded Notification database identity" || fail "could not read Notification database identity"
   [ -n "$BEFORE_BROKER" ] && pass "recorded broker data identity" || fail "could not read broker data identity"
   "${COMPOSE[@]}" down >/dev/null 2>&1
   if "${COMPOSE[@]}" up -d --wait >/dev/null 2>&1; then pass "stack started again after down"; else fail "stack did not start again after down"; fi
   expect "Identity database kept its data" "$BEFORE_IDENTITY" "$(database_id identity-db)"
   expect "Task database kept its data" "$BEFORE_TASK" "$(database_id task-db)"
+  expect "Notification database kept its data" "$BEFORE_NOTIFICATION" "$(database_id notification-db)"
   if [ -n "$BEFORE_BROKER" ] && [ "$(broker_id)" = "$BEFORE_BROKER" ]; then pass "broker kept its data"; else fail "broker did not keep its data"; fi
   wait_for "Identity ready after full restart" 200 90 inside_code http://127.0.0.1:8000/health/ready
   wait_for "Task ready after full restart" 200 120 inside_code http://task:8001/health/ready
   expect "gateway serves Identity routes after full restart" 401 "$(gateway_code GET /api/v1/me)"
+  wait_for "Notification ready after full restart" 200 90 inside_code http://notification:8002/health/ready
 fi
 
 # --- Summary ------------------------------------------------------------------------
 section "Not verified by this script (incomplete integrations)"
 cat <<'NOTES'
-  - Notification service: not built; its routes answer 503 by design.
   - Sign-in and session/workspace checks through the gateway: need a real Google
     client ID and a browser sign-in (manual; see infra/README.md).
-  - Event consumers: Notification and Task's lifecycle-event cleanup are not
-    implemented, so no event is consumed or acted on yet. Routing from the
-    producers to the broker queues is covered by check-events.sh.
+  - Event delivery: producers to queues and Notification's consumption are
+    covered by check-events.sh. Task's lifecycle-event cleanup consumer is
+    not enabled in this stack.
 NOTES
 [ "$LIFECYCLE" = 1 ] || echo "  - Outage, restart and data-persistence checks: re-run with --lifecycle."
 

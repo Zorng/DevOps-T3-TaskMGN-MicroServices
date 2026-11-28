@@ -1,13 +1,13 @@
-# Local application stack: gateway, Identity & Workspace, Task, broker and the
-# service-owned databases. Notification is not built yet and is NOT part of this
-# stack (see infra/README.md, "Incomplete integrations").
+# Local application stack: gateway, Identity & Workspace, Task, Notification,
+# broker and the service-owned databases.
 #
 # Run from the repository root (see infra/README.md for the full runbook):
 #   python3 infra/scripts/setup_env.py
 #   docker compose -f infra/compose.yaml up -d --build --wait
 #
 # Deployments of tested images use infra/scripts/deploy.sh, which sets
-# GATEWAY_IMAGE / IDENTITY_IMAGE / TASK_IMAGE to immutable digests.
+# GATEWAY_IMAGE / IDENTITY_IMAGE / TASK_IMAGE to immutable digests. NOTIFICATION_IMAGE
+# can be set the same way; unset means the local build.
 name: taskmgn
 
 # --- Identity & Workspace: settings shared by the app, migration job and worker ---
@@ -35,6 +35,23 @@ x-identity-container: &identity-container
   security_opt:
     - no-new-privileges:true
 
+# --- Notification: settings shared by the service and its migration job -------
+x-notification-environment: &notification-environment
+  DATABASE_URL: postgresql://notification_app:${NOTIFICATION_DB_PASSWORD:?run python3 infra/scripts/setup_env.py}@notification-db:5432/notification
+
+x-notification-container: &notification-container
+  image: ${NOTIFICATION_IMAGE:-taskmgn/notification:local}
+  build:
+    context: ../services/notification
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
 services:
   # ------------------------------------------------------------------ gateway
   # The only service that publishes a port, and only on this machine (127.0.0.1).
@@ -46,10 +63,7 @@ services:
     environment:
       IDENTITY_UPSTREAM: http://identity-workspace:8000
       TASK_UPSTREAM: http://task:8001
-      # Notification does not exist yet. This address has nothing listening, so
-      # its routes answer 503 DEPENDENCY_UNAVAILABLE. It is not a stand-in
-      # service; replace it with http://notification:8002 when that service is built.
-      NOTIFICATION_UPSTREAM: http://127.0.0.1:8002
+      NOTIFICATION_UPSTREAM: http://notification:8002
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?run python3 infra/scripts/setup_env.py}
     ports:
       - "127.0.0.1:${GATEWAY_HTTP_PORT:-8080}:8080"
@@ -57,6 +71,8 @@ services:
       identity-workspace:
         condition: service_started
       task:
+        condition: service_started
+      notification:
         condition: service_started
     networks: [backend]
 
@@ -205,6 +221,74 @@ services:
       retries: 12
     networks: [task-data]
 
+  # ------------------------------------------------------------- notification
+  notification:
+    <<: *notification-container
+    restart: unless-stopped
+    stop_grace_period: 20s
+    environment:
+      <<: *notification-environment
+      IDENTITY_READY_URL: http://identity-workspace:8000/health/ready
+      IDENTITY_BASE_URL: http://identity-workspace:8000
+      # Notification's own key, issued by Identity (the same value Identity is given above).
+      NOTIFICATION_IDENTITY_SERVICE_KEY: ${IDENTITY_NOTIFICATION_SERVICE_KEY:?run python3 infra/scripts/setup_env.py}
+      NOTIFICATION_CURSOR_SECRET: ${NOTIFICATION_CURSOR_SECRET:?run python3 infra/scripts/setup_env.py}
+      # Event consumption (broker -> Notification). The broker never affects readiness.
+      BROKER_HOST: broker
+      BROKER_PORT: "5672"
+      BROKER_VHOST: taskmgn
+      BROKER_USERNAME: notification
+      BROKER_PASSWORD: ${BROKER_NOTIFICATION_PASSWORD:?run python3 infra/scripts/setup_env.py}
+      BROKER_TLS: "false"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8002/health/live').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    depends_on:
+      notification-db:
+        condition: service_healthy
+      notification-migrate:
+        condition: service_completed_successfully
+      identity-workspace:
+        condition: service_healthy
+      # Routes and users must exist before the consumer connects.
+      broker-init:
+        condition: service_completed_successfully
+    networks: [backend, notification-data, messaging]
+
+  # One-off job: applies Notification's migrations before the service starts.
+  notification-migrate:
+    <<: *notification-container
+    command: ["node", "dist/migrate.js"]
+    environment: *notification-environment
+    restart: "no"
+    depends_on:
+      notification-db:
+        condition: service_healthy
+    networks: [notification-data]
+
+  notification-db:
+    image: postgres:17.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: notification
+      POSTGRES_USER: notification_app
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?run python3 infra/scripts/setup_env.py}
+    volumes:
+      - notification-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [notification-data]
+
   # ------------------------------------------------------------------- broker
   # Same configuration files as infra/broker/, but no published ports: the
   # management UI and metrics are reachable only from the private network.
@@ -258,6 +342,8 @@ networks:
     internal: true
   task-data:
     internal: true
+  notification-data:
+    internal: true
   messaging:
     internal: true
 
@@ -266,6 +352,7 @@ networks:
 volumes:
   identity-db-data:
   task-db-data:
+  notification-db-data:
   broker-data:
 
 secrets:
