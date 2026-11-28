@@ -140,8 +140,11 @@ resource "oci_core_instance" "backend" {
   metadata = {
     ssh_authorized_keys = file(pathexpand(var.ssh_public_key_path))
     user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tftpl", {
-      repo_url = var.repo_url
-      repo_ref = var.repo_ref
+      repo_url        = var.repo_url
+      repo_ref        = var.repo_ref
+      domain_name     = var.domain_name
+      frontend_origin = var.frontend_origin
+      acme_email      = var.acme_email
     }))
   }
 
@@ -150,7 +153,11 @@ resource "oci_core_instance" "backend" {
   preserve_boot_volume = false
 
   lifecycle {
-    # A newer Ubuntu image must not make Terraform replace the VM (and its data).
-    ignore_changes = [source_details[0].source_id]
+    # Avoid replacing the existing VM when cloud-init user_data changes.
+    # Apply future bootstrap changes manually or through a separate deployment process.
+    ignore_changes = [
+      source_details[0].source_id,
+      metadata["user_data"]
+    ]
   }
 }
