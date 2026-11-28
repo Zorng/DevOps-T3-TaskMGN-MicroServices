@@ -3,8 +3,9 @@
 
 Run from the repository root:  python3 infra/scripts/setup_env.py
 
-Existing files are never overwritten, so re-running is safe and does not change
-passwords that a database volume already depends on. No secret is printed.
+Existing values are never changed, so re-running is safe and does not change
+passwords that a database volume already depends on. Settings added to
+.env.example later are appended to an existing infra/.env. No secret is printed.
 """
 
 import os
@@ -26,21 +27,40 @@ SECRET_FILES = {
 }
 
 
+def example_line(line):
+    name, separator, value = line.partition("=")
+    if separator and not name.startswith("#") and value.strip() == PLACEHOLDER:
+        # 32 random bytes -> 43 URL-safe characters (valid for every service).
+        return f"{name}={secrets.token_urlsafe(32)}"
+    return line
+
+
 def create_env_file():
     if ENV_FILE.exists():
-        print("infra/.env already exists; left unchanged.")
+        add_missing_settings()
         return
-    lines = []
-    for line in EXAMPLE.read_text(encoding="utf-8").splitlines():
-        name, separator, value = line.partition("=")
-        if separator and not name.startswith("#") and value.strip() == PLACEHOLDER:
-            # 32 random bytes -> 43 URL-safe characters (valid for every service).
-            line = f"{name}={secrets.token_urlsafe(32)}"
-        lines.append(line)
+    lines = [example_line(line) for line in EXAMPLE.read_text(encoding="utf-8").splitlines()]
     descriptor = os.open(ENV_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
         stream.write("\n".join(lines) + "\n")
     print("Created infra/.env with generated secrets.")
+
+
+def add_missing_settings():
+    existing = read_env_values()
+    missing = []
+    for line in EXAMPLE.read_text(encoding="utf-8").splitlines():
+        name, separator, _ = line.partition("=")
+        if separator and not name.strip().startswith("#") and name.strip() not in existing:
+            missing.append(example_line(line))
+    if not missing:
+        print("infra/.env already exists and has every setting; left unchanged.")
+        return
+    text = ENV_FILE.read_text(encoding="utf-8")
+    with ENV_FILE.open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(("" if text.endswith("\n") else "\n") + "\n".join(missing) + "\n")
+    names = ", ".join(line.partition("=")[0] for line in missing)
+    print(f"Added new settings to infra/.env: {names}.")
 
 
 def read_env_values():

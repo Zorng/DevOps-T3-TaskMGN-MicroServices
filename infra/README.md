@@ -2,7 +2,7 @@
 
 Shared deployment configuration and the local application stack. Application source and Dockerfiles stay in their component directories (`gateway/`, `services/identity-workspace/`, `services/task/`); `infra/compose.yaml` builds them through relative paths.
 
-Status: the **local stack** below is implemented and checked. Cloud deployment (Oracle Cloud Always Free, public HTTPS), centralized logs/metrics and the Notification service are **not** done; see [Incomplete integrations](#incomplete-integrations).
+Status: the **local stack** below, including the Notification service, is implemented and checked. Cloud deployment (Oracle Cloud Always Free, public HTTPS) is **not** done; see [Incomplete integrations](#incomplete-integrations). Centralized logs and metrics are configured in [monitoring/](monitoring/README.md).
 
 ## What runs locally
 
@@ -15,10 +15,13 @@ Status: the **local stack** below is implemented and checked. Cloud deployment (
 | `identity-db` | Postgres 18.7, owned by Identity | no |
 | `task` | Task API (port 8001) | no, private |
 | `task-db` | Postgres 17.6, owned by Task | no |
+| `notification` | Notification API and event consumer (port 8002) | no, private |
+| `notification-migrate` | One-off migration job | no |
+| `notification-db` | Postgres 17.6, owned by Notification | no |
 | `broker` | RabbitMQ 4.1 (vhost `taskmgn`, exchange `events`) | no, private |
 | `broker-init` | One-off job that creates users, queues and bindings | no |
 
-The Notification service does not exist yet, so it is **not** in the stack. The gateway points its Notification routes at an address where nothing listens, so they answer `503 DEPENDENCY_UNAVAILABLE`. No fake service stands in for it.
+The gateway forwards `/api/v1/notifications` to `notification:8002`. Notification checks every request with Identity and consumes `notifications.v1` from the broker.
 
 ## Prerequisites
 
@@ -72,7 +75,7 @@ docker compose -f infra/compose.yaml down           # stops and removes containe
 docker compose -f infra/compose.yaml up -d --wait   # starts again with the same data
 ```
 
-`down` does **not** delete data. The databases and broker live in named volumes (`taskmgn_identity-db-data`, `taskmgn_task-db-data`, `taskmgn_broker-data`) that survive `down`, `stop` and restarts.
+`down` does **not** delete data. The databases and broker live in named volumes (`taskmgn_identity-db-data`, `taskmgn_task-db-data`, `taskmgn_notification-db-data`, `taskmgn_broker-data`) that survive `down`, `stop` and restarts.
 
 ## Deliberate data reset (destructive)
 
@@ -100,10 +103,11 @@ Only the gateway publishes a port. Databases and the broker publish none, so the
 
 | Network | Members | Notes |
 |---|---|---|
-| `backend` | gateway, identity-workspace, task | service-to-service HTTP; Identity needs outbound access to Google |
+| `backend` | gateway, identity-workspace, task, notification | service-to-service HTTP; Identity needs outbound access to Google |
 | `identity-data` | identity-workspace, identity-migrate, identity-outbox, identity-db | internal, no outside traffic |
 | `task-data` | task, task-db | internal |
-| `messaging` | broker, broker-init, identity-outbox, task | internal; the broker has no published ports, so its management UI is private |
+| `notification-data` | notification, notification-migrate, notification-db | internal |
+| `messaging` | broker, broker-init, identity-outbox, task, notification | internal; the broker has no published ports, so its management UI is private |
 
 The gateway returns 404 for `/health/*`, `/metrics`, `/actuator/*` and `/internal/*`, so internal APIs and operational endpoints are not public. Identity cannot reach Task's database, Task cannot reach Identity's database, and the Identity API (not its outbox worker) cannot reach the broker.
 
@@ -202,14 +206,14 @@ Recorded explicitly, as the issue requires. Nothing here is faked.
 
 | Integration | State | Effect |
 |---|---|---|
-| Notification service | Not built | Not in Compose; `/api/v1/notifications` answers 503. When it exists, add it to Compose and change `NOTIFICATION_UPSTREAM` to `http://notification:8002`. |
-| Event consumers | Not implemented (Notification, and Task's cleanup on workspace events) | Events reach `notifications.v1` and `task-cleanup.v1` (checked) but nothing consumes, deduplicates or acts on them. |
+| Task's cleanup consumer | Not enabled in Compose | `task-cleanup.v1` events reach the queue (checked) but are not acted on. Notification consumes `notifications.v1` (checked). |
+| Notification image deployment | Not wired | `deploy.sh` replaces the gateway, Identity and Task by digest. Notification uses the local build (or `NOTIFICATION_IMAGE`) until it is added there. |
 | Sign-in and session/workspace checks | Manual | Need a real Google client ID and a browser sign-in. Not run in CI. |
 | Events created through public APIs | Not automated | `check-events.sh` writes events into the outboxes with the contract's example payloads, because creating them through the APIs needs a Google sign-in. |
 | Deployment to the Oracle VM | Automation written and proven locally; not run against the VM | The VM does not exist yet (issue #32). The SSH step of `deploy.yml` is untested until then. |
 | Task image publishing | Not done | Task's workflow does not publish to the registry, so Task cannot be deployed through GitHub yet (the script works with any digest). |
 | Public HTTPS, certificates | Not started | The local stack only. |
-| Centralized logs and metrics | Not started | Use `docker compose logs` locally. |
+| Centralized logs and metrics | Configured, not deployed | Configuration and checks are in [monitoring/](monitoring/README.md); running it next to the live stack is #34. |
 
 ## Troubleshooting
 
