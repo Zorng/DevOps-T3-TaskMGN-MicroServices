@@ -136,6 +136,10 @@ bash infra/scripts/check-events.sh --outage
 # deliberately broken image. Needs the stack built locally (up --build); uses a
 # throwaway registry on 127.0.0.1:5055 (set REGISTRY_PORT to change it).
 bash infra/scripts/check-deploy.sh
+
+# Backup of the three databases and the broker configuration, then a restore into
+# throw-away containers that is compared with the live data (see "Backup and restore").
+python3 infra/scripts/backup_restore.py drill
 ```
 
 Each prints `PASS`/`FAIL` per check and exits 0 only if everything passed. They put back anything they stopped and remove the test events they create. The same checks run in CI (`.github/workflows/infra.yml`).
@@ -212,8 +216,75 @@ Recorded explicitly, as the issue requires. Nothing here is faked.
 | Events created through public APIs | Not automated | `check-events.sh` writes events into the outboxes with the contract's example payloads, because creating them through the APIs needs a Google sign-in. |
 | Deployment to the Oracle VM | Automation written and proven locally; not run against the VM | The VM does not exist yet (issue #32). The SSH step of `deploy.yml` is untested until then. |
 | Task image publishing | Not done | Task's workflow does not publish to the registry, so Task cannot be deployed through GitHub yet (the script works with any digest). |
+| Scheduled and off-VM backups; full disaster-recovery rehearsal | Documented, not set up | The backup and a verified restore into throw-away containers are proven locally and in CI. Scheduling, copying off the VM and a real recovery need the deployed VM (issue #32). |
 | Public HTTPS, certificates | Not started | The local stack only. |
 | Centralized logs and metrics | Configured, not deployed | Configuration and checks are in [monitoring/](monitoring/README.md); running it next to the live stack is #34. |
+
+## Backup and restore
+
+Tool: `python3 infra/scripts/backup_restore.py` (standard library only; the stack must be running).
+
+| Command | What it does |
+| --- | --- |
+| `backup` | Writes a backup set to `infra/.backups/<UTC timestamp>/` |
+| `verify [DIR]` | Restores a backup set into throw-away containers and compares it with the manifest (newest set by default) |
+| `drill` | Writes a marker row into each live database, runs `backup` and `verify`, checks the marker survived, then removes it from the live databases |
+
+### Scope
+
+| State | Backed up | How | Not backed up |
+| --- | --- | --- | --- |
+| Identity database | Yes | `pg_dump` custom format | |
+| Task database | Yes | `pg_dump` custom format | |
+| Notification database | Yes | `pg_dump` custom format | |
+| Broker configuration | Yes | `rabbitmqctl export_definitions`: exchanges, queues, bindings, users and permissions | Messages waiting in queues, including the `.dlq` queues. See the limit below. |
+| Configuration and secrets | **No** | | `infra/.env` and `infra/.secrets/` are never written into a backup. Keep them in a password manager or secret store. Without them a restored database cannot be used. |
+| Logs and metrics (monitoring) | **No** | | Loki keeps 7 days of logs and Prometheus 15 days of metrics; they are diagnostic data and can be rebuilt by running the stack. |
+
+**Limit: queued messages are not backed up.** An event still waiting in a service's outbox is inside that service's database backup and is published after a restore. A message the broker has already accepted but that nobody has consumed yet is **lost** if the broker's volume is lost. Dead letters are replayed by an operator with `infra/broker/scripts/replay_dead_letters.py` (see [broker/README.md](broker/README.md)); they are not recovered from a backup.
+
+Each set contains one `<service>.dump` per database, `broker-definitions.json` and `manifest.json` (the image used, a checksum of every file, the exact row count of every table, and the broker's queues, users and permissions). A set contains broker credentials, so it is written with private permissions (`0700` folder, `0600` files) and `infra/.backups/` is ignored by Git. Treat it as a secret and never commit it.
+
+### Retention and storage
+
+- **Frequency:** daily, and before every deployment that changes a service or its migrations.
+- **Keep:** daily sets for 14 days; delete older ones.
+- **Storage:** the VM's disk holds the working copy. Also copy each set **off the VM** (your computer or object storage), because a lost VM takes its disk with it. Copying off the VM is not automated yet.
+- **Scheduling on the VM (example, not set up yet):**
+  ```cron
+  0 3 * * * cd /opt/taskmgn && python3 infra/scripts/backup_restore.py backup && find infra/.backups -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} +
+  ```
+  The `&&` means old sets are deleted only after a new backup succeeded.
+
+### Proving a restore (no live data is replaced)
+
+```sh
+python3 infra/scripts/backup_restore.py drill
+```
+
+For each database it starts a throw-away container of the same image **with no network and no published ports**, restores the dump, and checks that:
+1. the dump matches its recorded checksum,
+2. `pg_restore` finishes without errors,
+3. the same tables exist and **every table has exactly the recorded row count**,
+4. the marker row written just before the backup is present.
+
+For the broker, a throw-away RabbitMQ (on an internal network with no route out and no published ports) imports the definitions, and every queue, every user and every permission must come back; the new container's own default account is allowed, nothing else. It then removes all throw-away containers and exits non-zero if any check fails. Live containers and volumes are only read. The same drill runs in CI. Save the output as demonstration evidence.
+
+### Restoring for real (disaster recovery)
+
+Do this into a **freshly initialized** stack so each service's own start-up scripts create its database roles and privileges first.
+
+1. Get the secrets back into `infra/.env` and `infra/.secrets/` from your secret store.
+2. Start a clean stack. This deletes all data, so do it only for a real recovery: `docker compose -f infra/compose.yaml down --volumes`, then `docker compose -f infra/compose.yaml up -d --build --wait` (on the deployment host, `bash infra/scripts/deploy.sh start` instead, which uses the recorded image digests).
+3. Stop the services that use the databases: `docker compose -f infra/compose.yaml stop gateway identity-workspace identity-outbox task notification`.
+4. Restore each database, reading the dump from your backup set (repeat for `task-db` / `task.dump` and `notification-db` / `notification.dump`):
+   ```sh
+   docker compose -f infra/compose.yaml exec -T identity-db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' < infra/.backups/<set>/identity.dump
+   ```
+5. Broker topology normally needs no restore: `broker-init` recreates it on start. To restore its users and permissions exactly, import `broker-definitions.json` with `rabbitmqctl import_definitions`.
+6. Start everything again (`docker compose -f infra/compose.yaml up -d --wait`) and run `bash infra/scripts/check.sh`.
+
+Known limit: the restore uses `--no-privileges`, so if a service reports permission errors on its tables after a restore, re-apply its database grants as described in that service's setup documentation (for Identity, `services/identity-workspace/docs/database-setup.md`). The throw-away restore above is proven; a full recovery into a live stack has **not** been rehearsed yet. Rehearse it once on the deployed VM and record the result.
 
 ## Troubleshooting
 
@@ -223,7 +294,7 @@ Recorded explicitly, as the issue requires. Nothing here is faked.
 
 ## Broker
 
-Broker configuration, users, queues, retry/dead-letter behavior, backup and restore are documented in [broker/README.md](broker/README.md). The stack above uses the same configuration files with no published ports.
+Broker configuration, users, queues and retry/dead-letter behavior are documented in [broker/README.md](broker/README.md). Backup of the shared stack, including the broker configuration, is in "Backup and restore" above. The stack above uses the same configuration files with no published ports.
 
 ## Deployment requirements (still open for the cloud)
 

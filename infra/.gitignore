@@ -3,3 +3,5 @@
 .secrets/
 # Recorded image versions and deployment history (infra/scripts/deploy.sh)
 .deploy/
+# Backup sets (contain database dumps and broker credentials; see "Backup and restore" in README.md)
+.backups/
