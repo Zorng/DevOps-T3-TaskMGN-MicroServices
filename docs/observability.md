@@ -113,13 +113,46 @@ Run on 2026-11-27 with `infra/monitoring/scripts/verify.sh` (sample telemetry on
 
 Also checked: `promtool check config`, `promtool test rules` (5 alert cases), `loki -verify-config` and `alloy fmt`.
 
+## Live verification
+
+Run on 2026-11-28 against the real local stack (`infra/compose.yaml`, including Notification since #77) with monitoring attached through `infra/monitoring/compose.stack.yaml`. No sample telemetry was running.
+
+### Healthy system
+
+- All five scrape targets were `UP`: `identity-workspace`, `identity-outbox`, `task`, `notification` and `broker`.
+- Both Grafana data sources were healthy and all three dashboards loaded. Loki held real logs from the gateway, Identity and Notification.
+- 60 requests through the gateway and the events from `infra/scripts/check-events.sh` appeared in **Service health** (request rate, latency, no 5xx) and **Event pipeline** (Notification `created`, outboxes at 0, dead-letter queues at 0).
+
+### Deliberate failure: Notification's database stopped
+
+```sh
+docker compose -f infra/compose.yaml stop notification-db    # 12:24
+bash infra/scripts/check-events.sh                           # publishes three notification events
+docker compose -f infra/compose.yaml start notification-db   # 12:29:30
+```
+
+While the database was down, Notification stayed live (`/health/live` 200) and reported itself not ready (`/health/ready` 503). The **Trace an ID** dashboard followed the assignment event `8e222df1-2c6e-4c53-b7e2-5e660b0aee56` from producer to consumer:
+
+| Time | Service | Log |
+| --- | --- | --- |
+| 12:25:12 | task | `Published event_id=8e222df1… type=task.assigned.v1` |
+| 12:25:14 | notification | `event_retry_scheduled` attempt 1, delay 5s |
+| 12:25:20 | notification | `event_retry_scheduled` attempt 2, delay 30s |
+| 12:25:52 | notification | `event_retry_scheduled` attempt 3, delay 2m |
+| 12:27:53 | notification | `event_retry_scheduled` attempt 4, delay 10m |
+| 12:37:53 | notification | `event_processed` attempt 5, outcome `created` |
+
+The invitation and mention events followed the same path and were processed at 12:37:52 and 12:37:55.
+
+- **Metrics:** Notification processing failures and retries rose to 12 each (3 events × 4 attempts). `notifications.v1.dlq` stayed at 0, so no event was lost or dead-lettered.
+- **Alert:** `ConsumerFailuresPersisting` (service `notification`) was pending from 12:25:41, firing from 12:30:41, and cleared at 12:35:41 after the failures stopped.
+- **Recovery:** after the database returned, the next scheduled retry succeeded without operator action. Each event produced exactly one stored notification.
+
 ## Gaps
 
-These are not live evidence yet and are listed rather than filled with sample data:
-
-- **Live verification.** The stack has only been checked with sample telemetry. Checking real telemetry and tracing a deliberate failure need the deployed system (#34, #45).
-- **Notification is not in `infra/compose.yaml`.** Its scrape target and logs appear once it is added to the application stack.
 - **Gateway metrics.** The gateway has no metrics endpoint (planned in #34). Its rate, latency and upstream errors come from the access log instead.
 - **Task latency percentiles.** Task exports no histogram buckets, so only its average latency is shown. Setting `management.metrics.distribution.percentiles-histogram.http.server.requests=true` in Task would enable p95.
 - **Alert delivery.** Alerts are evaluated and visible in Prometheus, but no Alertmanager or destination (email, chat) is chosen.
+- **Identity readiness panel.** Identity updates its readiness gauge only when `/health/ready` is called, and nothing in the stack calls it on a schedule. After a restart the panel shows `UNKNOWN` until a probe runs. A periodic readiness probe (for example from the deployment's health checks) would keep it current.
+- **Cloud deployment.** The live check used the local stack. Repeating it on the deployed system belongs to #34.
 - **Backups of monitoring data** are not covered; logs and metrics are kept for 7 and 15 days.
