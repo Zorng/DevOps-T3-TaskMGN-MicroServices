@@ -2,7 +2,7 @@
 
 Shared deployment configuration and the local application stack. Application source and Dockerfiles stay in their component directories (`gateway/`, `services/identity-workspace/`, `services/task/`); `infra/compose.yaml` builds them through relative paths.
 
-Status: the **local stack** below, including the Notification service, is implemented and checked. Cloud deployment (Oracle Cloud Always Free, public HTTPS) is **not** done; see [Incomplete integrations](#incomplete-integrations). Centralized logs and metrics are configured in [monitoring/](monitoring/README.md).
+Status: The local application stack below, including the Notification service, is implemented and checked. The backend is also deployed on Oracle Cloud with public HTTPS and private internal services verified. See [Oracle Cloud deployment](../docs/oracle-deployment.md) for the actual topology, deployment verification, operational instructions and remaining limitations. Centralized logs and metrics are configured in [monitoring/](monitoring/README.md).
 
 ## What runs locally
 
@@ -184,7 +184,8 @@ One-time setup by the repository owner (nothing below is stored in Git):
 | Variable `DEPLOY_PATH` (the repository checkout on the host) | that environment |
 | On the host: clone the repository, run `python3 infra/scripts/setup_env.py`, and `docker login ghcr.io` with a read-only package token | the backend host |
 
-Until the host exists (issue #32) the workflow stops at "Require the deployment target to be configured" and deploys nothing. The deployment logic itself is proven by `infra/scripts/check-deploy.sh` (see above), which runs in CI.
+The Oracle backend host is now provisioned and running. The GitHub deployment workflow still requires the production Environment secrets and variables to be configured and its deployment path to be verified against the live host. See [Oracle Cloud deployment](../docs/oracle-deployment.md).
+The deployment logic itself is proven by `infra/scripts/check-deploy.sh` (see above), which runs in CI.
 
 ## Sign-in and session checks (manual)
 
@@ -206,19 +207,23 @@ Creating a workspace and opening its Task boards with a token exercises Task's c
 
 ## Incomplete integrations
 
-Recorded explicitly, as the issue requires. Nothing here is faked.
+Recorded explicitly, as the issue requires. Completed deployment and verification work is distinguished from remaining limitations.
 
 | Integration | State | Effect |
 |---|---|---|
 | Task's cleanup consumer | Not enabled in Compose | `task-cleanup.v1` events reach the queue (checked) but are not acted on. Notification consumes `notifications.v1` (checked). |
 | Notification image deployment | Not wired | `deploy.sh` replaces the gateway, Identity and Task by digest. Notification uses the local build (or `NOTIFICATION_IMAGE`) until it is added there. |
-| Sign-in and session/workspace checks | Manual | Need a real Google client ID and a browser sign-in. Not run in CI. |
-| Events created through public APIs | Not automated | `check-events.sh` writes events into the outboxes with the contract's example payloads, because creating them through the APIs needs a Google sign-in. |
-| Deployment to the Oracle VM | Automation written and proven locally; not run against the VM | The VM does not exist yet (issue #32). The SSH step of `deploy.yml` is untested until then. |
-| Task image publishing | Not done | Task's workflow does not publish to the registry, so Task cannot be deployed through GitHub yet (the script works with any digest). |
-| Scheduled and off-VM backups; full disaster-recovery rehearsal | Documented, not set up | The backup and a verified restore into throw-away containers are proven locally and in CI. Scheduling, copying off the VM and a real recovery need the deployed VM (issue #32). |
-| Public HTTPS, certificates | Not started | The local stack only. |
-| Centralized logs and metrics | Configured, not deployed | Configuration and checks are in [monitoring/](monitoring/README.md); running it next to the live stack is #34. |
+| Sign-in and session/workspace checks | Manual; full production flow pending | Requires a real Google client ID and browser sign-in. The authenticated production workflow has not been verified and is not run in CI. |
+| Events created through public APIs | Not automated | `check-events.sh` writes events into the outboxes with the contract's example payloads because creating them through the APIs requires Google sign-in. |
+| Deployment to the Oracle VM | Deployed; GitHub deployment workflow still requires verification | The Oracle VM is provisioned and running. The production checkout is synchronized with `main` at `06a619d`. Public HTTPS and backend health have been verified. The GitHub SSH deployment workflow still needs verification against the live host. See [Oracle Cloud deployment](../docs/oracle-deployment.md). |
+| Task image publishing | Not done | Task's workflow does not publish to the registry, so Task cannot be deployed through GitHub yet. The deployment script works with any supplied digest. |
+| Scheduled and off-VM backups; full disaster-recovery rehearsal | Partially verified | An Oracle VM backup and restore drill passed 53 checks with 0 failures on 28 November 2026. Restore verification used throw-away containers; live containers were only read. Scheduled backups, off-VM copies and a full recovery rehearsal remain pending. |
+| Public HTTPS, certificates | Configured and verified on Oracle VM | Caddy provides public HTTPS using Let's Encrypt. HTTP redirects to HTTPS, and the gateway health endpoint returned HTTP 200. |
+| Private service networking and persistent storage | Configured and partially verified | Database and broker ports are not publicly exposed. Persistent volume mounts were verified for all databases and RabbitMQ. The Task database container restarted successfully; restart-and-data verification for every stateful service remains pending. |
+| ARM64 image compatibility | Verified on Oracle VM | All deployed application, database, broker and broker-init images were verified as ARM64-compatible. |
+| Oracle account and capacity decision | Resolved; cost monitoring remains necessary | The team initially encountered an A1 Flex out-of-host-capacity error. The team leader upgraded the tenancy to Pay As You Go. The deployed VM uses `VM.Standard.A1.Flex` with 2 OCPU, 12 GB RAM and a 100 GB boot volume. Monitor actual charges through Oracle Cost Analysis; do not assume the deployment is cost-free. |
+| Frontend origin and CORS | Pending frontend deployment | The frontend origin has not yet been configured because the frontend is not deployed. Browser-based integration remains pending. |
+| Centralized logs and metrics | Configured, not deployed | Configuration and checks are in [monitoring/](monitoring/README.md); running it next to the live stack remains tracked by issue #34. |
 
 ## Backup and restore
 
@@ -296,7 +301,9 @@ Known limit: the restore uses `--no-privileges`, so if a service reports permiss
 
 Broker configuration, users, queues and retry/dead-letter behavior are documented in [broker/README.md](broker/README.md). Backup of the shared stack, including the broker configuration, is in "Backup and restore" above. The stack above uses the same configuration files with no published ports.
 
-## Deployment requirements (still open for the cloud)
+## Deployment architecture and remaining requirements
+
+The Oracle backend deployment is now running. Public HTTPS, private service networking, persistent storage, ARM64 image compatibility and backup restoration have been verified. Remaining cloud integration and operational gaps are tracked in [Oracle Cloud deployment](../docs/oracle-deployment.md).
 
 - Separate service-owned databases and persistent storage, even when sharing one VM.
 - Private service/database/broker networking and a public HTTPS gateway.
@@ -305,4 +312,4 @@ Broker configuration, users, queues and retry/dead-letter behavior are documente
 - Environment-based secrets, backups/restore steps, health checks and independently deployable images.
 - ARM64-compatible images if Oracle ARM VMs are used.
 
-For Identity's private checks, follow the [network/secret handoff](../services/identity-workspace/docs/private-access-apis.md#gateway-and-infrastructure-handoff). Keep Identity ports private and run its boundary verifier from a trusted runner after the real gateway is deployed; that cloud criterion remains open.
+For Identity's private checks, follow the [network/secret handoff](../services/identity-workspace/docs/private-access-apis.md#gateway-and-infrastructure-handoff). Keep Identity ports private and run its boundary verifier from a trusted runner after the real gateway is deployed; The Identity private-access boundary still requires verification from a trusted runner against the deployed gateway. See the Oracle deployment documentation for the remaining verification status.
