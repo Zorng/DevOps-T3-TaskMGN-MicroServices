@@ -1,0 +1,92 @@
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'task_outbox_oldest_seconds{service="task"}'
+        values: '120 240 360 420 480'
+      - series: 'identity_outbox_oldest_pending_age_seconds{service="identity-outbox"}'
+        values: '10 10 10 10 10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OutboxBacklogOld
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: OutboxBacklogOld
+        exp_alerts:
+          - exp_labels: { severity: critical, service: task }
+            exp_annotations:
+              summary: task has an outbox event pending for more than 5 minutes
+              action: Check broker connectivity, credentials and routes. Do not delete pending rows.
+
+  - interval: 1m
+    input_series:
+      - series: 'rabbitmq_queue_messages{vhost="taskmgn",queue="notifications.v1.dlq"}'
+        values: '0 0 2 2 2'
+      - series: 'rabbitmq_queue_messages{vhost="taskmgn",queue="notifications.v1"}'
+        values: '40 40 40 40 40'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: DeadLettersWaiting
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: DeadLettersWaiting
+        exp_alerts:
+          - exp_labels: { severity: warning, queue: notifications.v1.dlq }
+            exp_annotations:
+              summary: notifications.v1.dlq holds dead-lettered messages
+              action: Find event_dead_lettered logs, fix the cause, then replay with infra/broker/scripts/replay_dead_letters.py.
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="notification",service="notification"}'
+        values: '1 0 0 0 0'
+      - series: 'up{job="task",service="task"}'
+        values: '1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: notification, service: notification }
+            exp_annotations:
+              summary: notification metrics endpoint is unreachable
+              action: Check the container status and logs for notification.
+
+  - interval: 1m
+    input_series:
+      - series: 'notification_http_requests_total{service="notification"}'
+        values: '0+100x10'
+      - series: 'notification_http_server_errors_total{service="notification"}'
+        values: '0+10x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HighServerErrorRate
+        exp_alerts:
+          - exp_labels: { severity: warning, service: notification }
+            exp_annotations:
+              summary: More than 5% of notification requests fail with 5xx
+              action: Open the Service health dashboard, then trace a failing request ID in the Trace dashboard.
+
+  - interval: 1m
+    input_series:
+      - series: 'rabbitmq_queue_messages{vhost="taskmgn",queue="task-cleanup.v1"}'
+        values: '60x15'
+      - series: 'rabbitmq_queue_messages{vhost="taskmgn",queue="notifications.v1"}'
+        values: '500x15'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CleanupLagHigh
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: CleanupLagHigh
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: More than 50 workspace cleanup events are waiting
+              action: Check that the Task cleanup consumer is running and its database is healthy.

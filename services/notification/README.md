@@ -61,10 +61,16 @@ curl -i http://127.0.0.1:8002/metrics
 
 The service forwards the correlation UUID to Identity. It replaces missing
 or invalid IDs, caps request bodies at 64 KiB, and returns the shared JSON
-error envelope for HTTP input failures. JSON request logs record the ID,
-status, and duration using an allowlist of fields. The private Prometheus
-endpoint exposes request and server error counters and cumulative request
-duration in seconds. RabbitMQ exposes its own [Prometheus metrics](../../infra/broker/README.md).
+error envelope for HTTP input failures. Every log line is one JSON object
+with `timestamp`, `service`, `level` (`info`, `warn` or `error`) and `event`;
+request logs add the ID, status and duration using an allowlist of fields. A
+request is logged at `warn` for 4xx and `error` for 5xx. The private Prometheus
+endpoint exposes `notification_http_requests_total`,
+`notification_http_server_errors_total` and the
+`notification_http_request_duration_seconds` histogram (5 ms to 10 s buckets)
+for latency percentiles. RabbitMQ exposes its own [Prometheus metrics](../../infra/broker/README.md).
+The shared dashboards and alerts that read these signals are in
+[infra/monitoring](../../infra/monitoring/README.md).
 Broker availability is outside the synchronous readiness check.
 
 ## Verify Notification sessions
@@ -284,7 +290,8 @@ redelivers the event for normal processing, and a crash after commit
 redelivers it as a harmless duplicate.
 
 Consumer logs are JSON lines carrying `event_id`, `request_id`, `type`,
-`attempt` and the outcome, delay or reason. They never include message bodies,
+`attempt` and the outcome, delay or reason. Retries and disconnects are
+logged at `warn`, dead letters at `error`. They never include message bodies,
 broker credentials or error text. `/metrics` adds these counters:
 
 | Metric | Counts |

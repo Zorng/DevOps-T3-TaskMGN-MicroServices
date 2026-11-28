@@ -1,0 +1,91 @@
+groups:
+  - name: availability
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.service }} metrics endpoint is unreachable"
+          action: "Check the container status and logs for {{ $labels.service }}."
+
+      - alert: IdentityNotReady
+        expr: identity_readiness_status == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: Identity readiness reports its database unavailable
+          action: Check identity-db and the Identity logs for readiness_checked.
+
+      - alert: HighServerErrorRate
+        expr: |
+          (
+            sum by (service) (rate(identity_http_requests_total{status_code=~"5.."}[5m]))
+            / sum by (service) (rate(identity_http_requests_total[5m]))
+          ) > 0.05
+          or
+          (
+            sum by (service) (rate(http_server_requests_seconds_count{service="task",status=~"5.."}[5m]))
+            / sum by (service) (rate(http_server_requests_seconds_count{service="task"}[5m]))
+          ) > 0.05
+          or
+          (
+            sum by (service) (rate(notification_http_server_errors_total[5m]))
+            / sum by (service) (rate(notification_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 5% of {{ $labels.service }} requests fail with 5xx"
+          action: Open the Service health dashboard, then trace a failing request ID in the Trace dashboard.
+
+  - name: events
+    rules:
+      - alert: OutboxBacklogOld
+        expr: |
+          max by (service) (identity_outbox_oldest_pending_age_seconds) > 300
+          or
+          max by (service) (task_outbox_oldest_seconds) > 300
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.service }} has an outbox event pending for more than 5 minutes"
+          action: Check broker connectivity, credentials and routes. Do not delete pending rows.
+
+      - alert: OutboxPublishFailing
+        expr: |
+          sum by (service) (increase(identity_outbox_publish_failures_total[10m])) > 0
+          or
+          sum by (service) (increase(task_outbox_publish_failures_total[10m])) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.service }} keeps failing to publish events"
+          action: Look for broker_unavailable, unroutable or nack in the producer logs.
+
+      - alert: DeadLettersWaiting
+        expr: max by (queue) (rabbitmq_queue_messages{queue=~".+\\.dlq"}) > 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.queue }} holds dead-lettered messages"
+          action: Find event_dead_lettered logs, fix the cause, then replay with infra/broker/scripts/replay_dead_letters.py.
+
+      - alert: ConsumerFailuresPersisting
+        expr: |
+          sum by (service) (increase(notification_consumer_processing_failures_total[10m])) > 5
+          or
+          sum by (service) (increase(task_cleanup_failures_total[10m])) > 5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.service }} consumer is failing repeatedly"
+          action: Check the consumer's database and look for event_retry_scheduled logs.
+
+      - alert: CleanupLagHigh
+        expr: sum(rabbitmq_queue_messages{queue=~"task-cleanup\\.v1(\\.retry\\..+)?"}) > 50
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 50 workspace cleanup events are waiting
+          action: Check that the Task cleanup consumer is running and its database is healthy.

@@ -3,6 +3,7 @@ import { brokerConfig, ConsumerMetrics, startConsumer } from './consumer.js';
 import { checkDependencies, createPool } from './dependencies.js';
 import { createIdentityClient } from './identity.js';
 import { processEvent } from './processing.js';
+import { log } from './log.js';
 import { createNotificationRoutes } from './routes.js';
 
 const introspect = createIdentityClient(
@@ -18,7 +19,7 @@ const broker = brokerConfig(process.env);
 const consumerMetrics = new ConsumerMetrics();
 
 pool?.on('error', () => {
-  console.error(JSON.stringify({ service: 'notification', event: 'database_connection_error' }));
+  log('error', 'database_connection_error');
 });
 
 const app = createApp(async (requestId) => {
@@ -30,14 +31,14 @@ const app = createApp(async (requestId) => {
 }, () => consumerMetrics.lines());
 
 const server = app.listen(port, host, () => {
-  console.log(JSON.stringify({ service: 'notification', event: 'listening', host, port }));
+  log('info', 'listening', { host, port });
 });
 
 const consumer = pool && broker
   ? startConsumer(broker, (content) => processEvent(pool, content), consumerMetrics)
   : undefined;
 if (!consumer) {
-  console.log(JSON.stringify({ service: 'notification', event: 'consumer_disabled' }));
+  log('warn', 'consumer_disabled');
 }
 
 process.once('SIGTERM', async () => {

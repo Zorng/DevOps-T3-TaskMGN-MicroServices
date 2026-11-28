@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express';
 import { sendError } from './http.js';
 import type { IntrospectSession } from './identity.js';
+import { log } from './log.js';
 
 export function requireSession(introspect: IntrospectSession): RequestHandler {
   return async (request, response, next) => {
@@ -21,11 +22,7 @@ export function requireSession(introspect: IntrospectSession): RequestHandler {
         sendError(response, 401, 'SESSION_INVALID', 'The session is invalid or expired.');
         return;
       case 'credential_rejected':
-        console.error(JSON.stringify({
-          service: 'notification',
-          event: 'identity_service_credential_rejected',
-          request_id: requestId,
-        }));
+        log('error', 'identity_service_credential_rejected', { request_id: requestId });
         break;
     }
     response.set('Retry-After', '1');
