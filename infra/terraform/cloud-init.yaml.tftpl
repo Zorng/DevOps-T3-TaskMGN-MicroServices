@@ -1,0 +1,106 @@
+#cloud-config
+# First-boot configuration for the backend VM. Rendered by Terraform: only the
+# template values (repo_url, repo_ref, domain_name, frontend_origin, acme_email) are
+# filled in; every other dollar sign here is shell syntax.
+hostname: taskmgn
+timezone: UTC
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+
+write_files:
+  - path: /usr/local/sbin/taskmgn-bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Idempotent: safe to run again by hand (sudo /usr/local/sbin/taskmgn-bootstrap.sh).
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+
+      echo "== 1. swap (the JVM and image builds need headroom)"
+      if ! swapon --show | grep -q /swapfile; then
+        fallocate -l 4G /swapfile
+        chmod 600 /swapfile
+        mkswap /swapfile
+        swapon /swapfile
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      fi
+
+      echo "== 2. host firewall: Oracle's Ubuntu image rejects everything except SSH"
+      # Done before Docker is installed so Docker's own rules never end up in the saved file.
+      for port in 80 443; do
+        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
+          || iptables -I INPUT 1 -p tcp --dport "$port" -j ACCEPT
+      done
+      if [ -f /etc/iptables/rules.v4 ] && ! grep -q -- '--dport 443' /etc/iptables/rules.v4; then
+        sed -i '/^-A INPUT -j REJECT/i -A INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT\n-A INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT' /etc/iptables/rules.v4
+      fi
+
+      echo "== 3. Docker Engine and Compose (official repository, arm64 builds)"
+      # Rotate container logs so they cannot fill the disk.
+      install -d /etc/docker
+      cat > /etc/docker/daemon.json <<'JSON'
+      {"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}
+      JSON
+      if ! command -v docker >/dev/null; then
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+        apt-get update
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      fi
+      systemctl enable --now docker
+      usermod -aG docker ubuntu
+
+      echo "== 4. SSH: keys only, no root login"
+      # Named 01- so it wins over any earlier file (sshd uses the first value it reads).
+      cat > /etc/ssh/sshd_config.d/01-taskmgn.conf <<'SSHD'
+      PasswordAuthentication no
+      PermitRootLogin no
+      SSHD
+      systemctl reload-or-restart ssh.service
+
+      echo "== 5. application checkout and settings"
+      install -d -o ubuntu -g ubuntu /opt/taskmgn
+      if [ ! -d /opt/taskmgn/.git ]; then
+        sudo -u ubuntu git clone --branch "${repo_ref}" "${repo_url}" /opt/taskmgn
+      fi
+      # Random passwords are generated here on the VM, so no secret is ever in Terraform.
+      sudo -u ubuntu python3 /opt/taskmgn/infra/scripts/setup_env.py
+      if [ -n "${frontend_origin}" ]; then
+        # Allow the real frontend: exact origin, dots written as [.] for the gateway.
+        cors=$(printf '%s' "${frontend_origin}" | sed 's/\./[.]/g')
+        sed -i "s|^CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=$cors|" /opt/taskmgn/infra/.env
+        sed -i "s|^IDENTITY_ALLOWED_ORIGINS=.*|IDENTITY_ALLOWED_ORIGINS='[\"${frontend_origin}\"]'|" /opt/taskmgn/infra/.env
+      fi
+
+      echo "== 6. HTTPS (Caddy gets and renews the certificate), only when a domain is set"
+      if [ -n "${domain_name}" ]; then
+        install -d /etc/caddy
+        {
+          echo "{"
+          echo "  admin off"
+          if [ -n "${acme_email}" ]; then echo "  email ${acme_email}"; fi
+          echo "}"
+          echo "${domain_name} {"
+          echo "  header -Server"
+          echo "  header Strict-Transport-Security \"max-age=604800\""
+          echo "  reverse_proxy 127.0.0.1:8080"
+          echo "}"
+        } > /etc/caddy/Caddyfile
+        docker rm -f caddy >/dev/null 2>&1 || true
+        docker run -d --name caddy --restart unless-stopped --network host \
+          -v /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro \
+          -v caddy-data:/data \
+          -v caddy-config:/config \
+          caddy:2
+      else
+        echo "no domain set: skipping HTTPS"
+      fi
+      echo "bootstrap finished"
+
+runcmd:
+  - [bash, -c, "/usr/local/sbin/taskmgn-bootstrap.sh > /var/log/taskmgn-bootstrap.log 2>&1 && touch /var/lib/taskmgn-bootstrap.done"]

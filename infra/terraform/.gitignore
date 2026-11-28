@@ -1,0 +1,9 @@
+# Credentials and generated infrastructure state must never be committed.
+terraform.tfvars
+*.auto.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+*.pem
+*.key
