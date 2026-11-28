@@ -62,11 +62,16 @@ test('metrics report completed traffic and server errors while logs omit secrets
   const body = await metrics.text();
   assert.match(body, /^notification_http_requests_total 2$/m);
   assert.match(body, /^notification_http_server_errors_total 1$/m);
-  assert.match(body, /^notification_http_request_duration_seconds_total [\d.e+-]+$/m);
+  assert.match(body, /^# TYPE notification_http_request_duration_seconds histogram$/m);
+  assert.match(body, /^notification_http_request_duration_seconds_bucket\{le="\+Inf"\} 2$/m);
+  assert.match(body, /^notification_http_request_duration_seconds_count 2$/m);
+  assert.match(body, /^notification_http_request_duration_seconds_sum [\d.e+-]+$/m);
   assert.equal(logs.mock.callCount(), 3);
   for (const call of logs.mock.calls) {
     const line = call.arguments[0];
     assert.ok(!line.includes(secret));
-    assert.equal(JSON.parse(line).event, 'request_completed');
+    const entry = JSON.parse(line);
+    assert.equal(entry.event, 'request_completed');
+    assert.equal(entry.level, entry.status >= 500 ? 'error' : entry.status >= 400 ? 'warn' : 'info');
   }
 });

@@ -1,0 +1,12 @@
+# Watch the application stack from infra/compose.yaml (project "taskmgn"). Start that stack first.
+services:
+  prometheus:
+    networks: [telemetry, backend, messaging]
+
+networks:
+  backend:
+    external: true
+    name: taskmgn_backend
+  messaging:
+    external: true
+    name: taskmgn_messaging

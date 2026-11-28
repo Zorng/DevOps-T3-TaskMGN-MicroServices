@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { connect, type ChannelModel, type ConfirmChannel, type ConsumeMessage } from 'amqplib';
 import { InvalidEventError } from './events.js';
 import { uuidPattern } from './http.js';
+import { log, type Level } from './log.js';
 import type { ProcessResult } from './processing.js';
 
 export const queue = 'notifications.v1';
@@ -236,6 +237,12 @@ function logContext(message: ConsumeMessage) {
   };
 }
 
+const eventLevels: Record<string, Level> = {
+  event_retry_scheduled: 'warn',
+  consumer_disconnected: 'warn',
+  event_dead_lettered: 'error',
+};
+
 function logJson(event: string, fields: Record<string, unknown> = {}) {
-  console.log(JSON.stringify({ timestamp: new Date().toISOString(), service: 'notification', event, ...fields }));
+  log(eventLevels[event] ?? 'info', event, fields);
 }

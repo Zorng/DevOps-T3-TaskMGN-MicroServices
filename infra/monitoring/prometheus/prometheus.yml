@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: identity-workspace
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["identity-workspace:8000"]
+        labels: { service: identity-workspace }
+
+  - job_name: identity-outbox
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["identity-outbox:8001"]
+        labels: { service: identity-outbox }
+
+  - job_name: task
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["task:8001"]
+        labels: { service: task }
+
+  - job_name: notification
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["notification:8002"]
+        labels: { service: notification }
+
+  - job_name: broker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["broker:15692"]
+        labels: { service: broker }

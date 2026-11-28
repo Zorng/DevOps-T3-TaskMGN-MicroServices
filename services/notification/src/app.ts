@@ -4,7 +4,10 @@ import { liveness, readiness } from './health.js';
 import { requireSession } from './authorization.js';
 import { sendError, uuidPattern } from './http.js';
 import type { IntrospectSession } from './identity.js';
+import { log } from './log.js';
+
 const bodyLimit = 64 * 1024;
+const latencyBuckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
 
 export function createApp(
   checkDependencies: (requestId: string) => Promise<void>,
@@ -19,6 +22,7 @@ export function createApp(
   let completedRequests = 0;
   let failedRequests = 0;
   let durationSeconds = 0;
+  const bucketCounts = latencyBuckets.map(() => 0);
 
   app.use((request, response, next) => {
     const suppliedId = request.get('X-Request-ID') ?? '';
@@ -28,18 +32,19 @@ export function createApp(
     response.set('Cache-Control', 'no-store');
     response.on('finish', () => {
       const durationMs = performance.now() - started;
+      const status = response.statusCode;
       completedRequests++;
-      if (response.statusCode >= 500) failedRequests++;
+      if (status >= 500) failedRequests++;
       durationSeconds += durationMs / 1000;
+      latencyBuckets.forEach((bound, index) => {
+        if (durationMs / 1000 <= bound) bucketCounts[index]++;
+      });
       // Only log allowlisted fields. Raw paths, headers, bodies and errors may contain secrets.
-      console.log(JSON.stringify({
-        timestamp: new Date().toISOString(),
-        service: 'notification',
-        event: 'request_completed',
+      log(status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info', 'request_completed', {
         request_id: requestId,
-        status: response.statusCode,
+        status,
         duration_ms: Math.round(durationMs),
-      }));
+      });
     });
     next();
   });
@@ -73,8 +78,12 @@ export function createApp(
       `notification_http_requests_total ${completedRequests}`,
       '# TYPE notification_http_server_errors_total counter',
       `notification_http_server_errors_total ${failedRequests}`,
-      '# TYPE notification_http_request_duration_seconds_total counter',
-      `notification_http_request_duration_seconds_total ${durationSeconds}`,
+      '# TYPE notification_http_request_duration_seconds histogram',
+      ...latencyBuckets.map((bound, index) =>
+        `notification_http_request_duration_seconds_bucket{le="${bound}"} ${bucketCounts[index]}`),
+      `notification_http_request_duration_seconds_bucket{le="+Inf"} ${completedRequests}`,
+      `notification_http_request_duration_seconds_sum ${durationSeconds}`,
+      `notification_http_request_duration_seconds_count ${completedRequests}`,
       ...extraMetrics(),
       '',
     ].join('\n'));

@@ -1,0 +1,88 @@
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_taskmgn_logs"]
+    separator     = ";"
+    regex         = "(" + sys.env("MONITORED_PROJECTS") + ");.*|.*;true"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "stack"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_taskmgn_stack"]
+    regex         = "(.+)"
+    target_label  = "stack"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.containers.output
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.containers.receiver]
+}
+
+loki.process "containers" {
+  // Defence in depth: services already exclude secrets, but nothing secret is stored even if one slips.
+  stage.replace {
+    expression = "(?i)bearer\\s+([A-Za-z0-9._~+/=-]+)"
+    replace    = "[REDACTED]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:amqps?|postgres(?:ql)?(?:\\+\\w+)?)://[^:/@\\s\"]+:([^@\\s\"]+)@"
+    replace    = "[REDACTED]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:service[_-]?key|password|secret|token)\"?\\s*[:=]\\s*\"?([^\"\\s,}]+)"
+    replace    = "[REDACTED]"
+  }
+
+  stage.regex {
+    expression = "(?i)level\"\\s*:\\s*\"(?P<level>[a-z]+)\""
+  }
+
+  stage.template {
+    source   = "level"
+    template = "{{ $l := ToLower .Value }}{{ if eq $l \"warning\" }}warn{{ else }}{{ $l }}{{ end }}"
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+
+  stage.regex {
+    expression = "request_id\"?\\s*[:=]\\s*\"?(?P<request_id>[0-9a-fA-F-]{36})"
+  }
+
+  stage.regex {
+    expression = "event_id\"?\\s*[:=]\\s*\"?(?P<event_id>[0-9a-fA-F-]{36})"
+  }
+
+  stage.structured_metadata {
+    values = { request_id = "", event_id = "" }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

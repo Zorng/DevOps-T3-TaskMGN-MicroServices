@@ -1,0 +1,63 @@
+name: Monitoring configuration
+
+on:
+  pull_request:
+    paths:
+      - 'infra/monitoring/**'
+      - '.github/workflows/monitoring.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/monitoring/**'
+      - '.github/workflows/monitoring.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infra/monitoring
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prometheus configuration and alert rules
+        run: |
+          docker run --rm -v "$PWD/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:v3.16.0 \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "$PWD/prometheus:/w:ro" -w /w --entrypoint promtool prom/prometheus:v3.16.0 \
+            test rules alerts.test.yml
+      - name: Loki configuration
+        run: docker run --rm -v "$PWD/loki:/etc/loki:ro" grafana/loki:3.7.9 -config.file=/etc/loki/loki.yaml -verify-config
+      - name: Alloy configuration
+        run: docker run --rm -v "$PWD/alloy:/w:ro" grafana/alloy:v1.21.3 fmt /w/config.alloy > /dev/null
+      - name: Dashboards are valid JSON with unique IDs
+        run: |
+          python3 - <<'EOF'
+          import json, pathlib
+          uids = set()
+          for path in sorted(pathlib.Path("grafana/dashboards").glob("*.json")):
+              board = json.loads(path.read_text())
+              assert board["uid"] not in uids, f"duplicate uid {board['uid']}"
+              uids.add(board["uid"])
+              for panel in board["panels"]:
+                  for target in panel.get("targets", []):
+                      assert target["datasource"]["uid"] in {"prometheus", "loki"}, (path, panel["title"])
+              print(path.name, "ok")
+          EOF
+
+  sample-telemetry:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Load the stack with sample telemetry and verify it
+        run: infra/monitoring/scripts/verify.sh
