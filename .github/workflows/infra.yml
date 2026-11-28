@@ -31,6 +31,7 @@ jobs:
           for script in infra/scripts/check.sh infra/scripts/check-events.sh infra/scripts/deploy.sh infra/scripts/check-deploy.sh infra/identity-db/init-wrapper.sh; do
             bash -n "$script"
           done
+          python3 -m py_compile infra/scripts/backup_restore.py infra/scripts/setup_env.py
       - name: Check no secrets are tracked
         run: |
           if git ls-files | grep -E '^infra/(\.env$|\.secrets/)'; then
@@ -66,6 +67,11 @@ jobs:
         run: |
           bash infra/scripts/check-deploy.sh | tee deploy.log
           test "$(grep -c '^  PASS' deploy.log)" -ge 30
+      - name: Backup and verified restore into throw-away containers
+        run: |
+          python3 infra/scripts/backup_restore.py drill | tee drill.log
+          # Three databases and the broker: an empty or truncated run must fail.
+          test "$(grep -c '^PASS' drill.log)" -ge 40
       - name: Show logs on failure
         if: failure()
         run: docker compose -f infra/compose.yaml logs --no-color --tail=200
